@@ -1,0 +1,6 @@
+{
+    "servers": ["lab.bigeagle.me:1234"],
+    "key": "ilovethebigbrother",
+    "addr": "10.0.0.2/24",
+    "dev": "tap"
+}

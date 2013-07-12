@@ -12,7 +12,7 @@ var cfgFile string
 
 func main() {
 
-    flag.BoolVar(&srvMode, "client", true, "Run in client mode")
+    flag.BoolVar(&cltMode, "client", false, "Run in client mode")
     flag.BoolVar(&srvMode, "server", false, "Run in server mode")
     flag.BoolVar(&debug, "debug", true, "Provide debug info")
     flag.StringVar(&cfgFile, "config", "", "configfile")
@@ -34,7 +34,15 @@ func main() {
     logger.Info("using config file: %v", cfgFile)
 
     if srvMode {
-        err := gohop.NewServer("", "10.0.0.1/24")
+        err := gohop.NewServer(cfgFile)
+        if err != nil {
+            logger.Error(err.Error())
+            return
+        }
+
+    }
+    if cltMode {
+        err := gohop.NewClient(cfgFile)
         if err != nil {
             logger.Error(err.Error())
             return
