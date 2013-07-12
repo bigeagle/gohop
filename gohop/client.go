@@ -1,30 +1,31 @@
 package gohop
 
 import (
-    "net"
-    "os"
+    "encoding/json"
     "errors"
     "io/ioutil"
-    "encoding/json"
-//    "encoding/binary"
+    "net"
+    "os"
+    //    "encoding/binary"
     "github.com/bigeagle/water"
+
 //    "github.com/bigeagle/water/waterutil"
 )
 
 type hopClientConfig struct {
     servers []string
-    key string
-    addr string
+    key     string
+    addr    string
 }
 
 type HopClient struct {
     config *hopClientConfig
-    iface *water.Interface
+    iface  *water.Interface
 
-    ifaceIn chan []byte
+    ifaceIn  chan []byte
     ifaceOut chan []byte
 
-    netIn chan []byte
+    netIn  chan []byte
     netOut chan []byte
 }
 
@@ -48,7 +49,7 @@ func clientParseConfig(cfgFile string) (*hopClientConfig, error) {
 
     cltConfig := new(hopClientConfig)
 
-    cfg, ok := icfg.(map[string] interface{})
+    cfg, ok := icfg.(map[string]interface{})
 
     if ok {
         // logger.Debug("%v", cfg)
@@ -98,8 +99,6 @@ func clientParseConfig(cfgFile string) (*hopClientConfig, error) {
     return cltConfig, nil
 }
 
-
-
 func NewClient(cfgFile string) error {
     hopClient := new(HopClient)
     hopClient.ifaceIn = make(chan []byte, 32)
@@ -115,7 +114,6 @@ func NewClient(cfgFile string) error {
     logger.Debug("%v", cltConfig)
     hopClient.config = cltConfig
 
-
     iface, err := newTap("", cltConfig.addr)
     if err != nil {
         return err
@@ -124,11 +122,12 @@ func NewClient(cfgFile string) error {
     hopClient.iface = iface
     go hopClient.handleInterface()
 
-    for i, server := range(cltConfig.servers) {
+    for i, server := range cltConfig.servers {
         go hopClient.handleUDP(server, i)
     }
 
     for {
+        // forward
         select {
         case frame := <-hopClient.ifaceIn:
             hopClient.netOut <- frame
@@ -139,9 +138,9 @@ func NewClient(cfgFile string) error {
     return nil
 }
 
-
 func (clt *HopClient) handleInterface() {
-   go func() {
+    // network packet to interface
+    go func() {
         for {
             frame := <-clt.ifaceOut
             logger.Debug("New Net packet to device")
@@ -152,41 +151,59 @@ func (clt *HopClient) handleInterface() {
                 return
             }
         }
-   }()
+    }()
 
-   buf := make([]byte, TAPBUFSIZE)
-   for {
+    buf := make([]byte, TAPBUFSIZE)
+    for {
         n, err := clt.iface.Read(buf)
         if err != nil {
             logger.Error(err.Error())
             return
         }
-        frame := make([]byte, n)
-        copy(frame, buf[0:n])
+        frame := make([]byte, n+1)
+        copy(frame[1:], buf[0:n])
+
+        // frame -> ifaceIn -> netOut
         clt.ifaceIn <- frame
-   }
+    }
 }
 
 func (clt *HopClient) handleUDP(server string, idx int) {
     udpAddr, _ := net.ResolveUDPAddr("udp", server)
     udpConn, _ := net.DialUDP("udp", nil, udpAddr)
 
+    opcode := HOP_REQ
+
+    // forward iface frames to network
     go func() {
         for {
             frame := <-clt.netOut
+            frame[0] = opcode
             udpConn.Write(frame)
         }
     }()
 
     buf := make([]byte, TAPBUFSIZE)
+
     for {
         n, err := udpConn.Read(buf)
+        logger.Debug("New UDP Packet")
         if err != nil {
             logger.Error(err.Error())
             return
         }
-        pack := make([]byte, n)
-        copy(pack, buf[0:n])
+
+        hp, _ := unpackHopPacket(buf[:n])
+        pack := make([]byte, n-1)
+
+        if hp.opcode == HOP_ACK {
+            opcode = HOP_DAT
+            logger.Info("Connection Initialized")
+        }
+
+        copy(pack, hp.frame)
+
+        // pack -> netIn -> ifaceOut
         clt.netIn <- pack
     }
 }

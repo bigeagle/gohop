@@ -3,8 +3,8 @@ package main
 import (
     "flag"
     //"fmt"
-    "github.com/bigeagle/gohop/logging"
     "github.com/bigeagle/gohop/gohop"
+    "github.com/bigeagle/gohop/logging"
 )
 
 var srvMode, cltMode, debug bool
@@ -14,7 +14,7 @@ func main() {
 
     flag.BoolVar(&cltMode, "client", false, "Run in client mode")
     flag.BoolVar(&srvMode, "server", false, "Run in server mode")
-    flag.BoolVar(&debug, "debug", true, "Provide debug info")
+    flag.BoolVar(&debug, "debug", false, "Provide debug info")
     flag.StringVar(&cfgFile, "config", "", "configfile")
     flag.Parse()
 
@@ -25,7 +25,6 @@ func main() {
         logger.Error("Invalid run mode")
         return
     }
-
 
     if cfgFile == "" {
         cfgFile = flag.Arg(0)
