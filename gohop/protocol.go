@@ -35,13 +35,14 @@ func unpackHopPacket(b []byte) (*HopPacket, error) {
 
 // gohop Peer is a record of a peer's available UDP addrs
 type HopPeer struct {
-    id         uint64
+    id         uint32
     addrs      map[net.Addr]int
     _addrs_lst []net.Addr   // i know it's ugly!
     inited     bool         // whether a connection is initialized
 }
 
-func newHopPeer(id uint64, addr net.Addr, idx int) *HopPeer {
+
+func newHopPeer(id uint32, addr net.Addr, idx int) *HopPeer {
     hp := new(HopPeer)
     hp.id = id
     hp._addrs_lst = make([]net.Addr, 0)
@@ -55,7 +56,6 @@ func newHopPeer(id uint64, addr net.Addr, idx int) *HopPeer {
 }
 
 func (h *HopPeer) addr() (net.Addr, int, bool) {
-
     addr := randAddr(h._addrs_lst)
     idx, ok := h.addrs[addr]
 

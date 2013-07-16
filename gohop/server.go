@@ -34,7 +34,7 @@ type HopServer struct {
     // interface
     iface  *water.Interface
     // client peers, key is the mac address, value is a HopPeer record
-    peers map[uint64]*HopPeer
+    peers map[uint32]*HopPeer
 
     // channel to put in packets read from udpsocket
     netInput   chan *udpPacket
@@ -122,7 +122,7 @@ func NewServer(cfgFile string) error {
     hopServer := new(HopServer)
     hopServer.netInput = make(chan *udpPacket, 32)
     hopServer.ifaceInput = make(chan []byte, 32)
-    hopServer.peers = make(map[uint64]*HopPeer)
+    hopServer.peers = make(map[uint32]*HopPeer)
 
     srvConfig, err := serverParseConfig(cfgFile)
     if err != nil {
@@ -133,7 +133,7 @@ func NewServer(cfgFile string) error {
     hopServer.config = srvConfig
     hopServer.netOutputs = make([]chan *udpPacket, len(srvConfig.ports))
 
-    iface, err := newTap("", srvConfig.addr)
+    iface, err := newTun("", srvConfig.addr)
     if err != nil {
         return err
     }
@@ -210,9 +210,11 @@ func (srv *HopServer) forwardFrames() {
             // first byte is left for opcode
             frame := pack[1:]
             if !waterutil.IsBroadcast(frame) {
+
                 // unicast ethernet packet
-                dest := waterutil.MACDestination(frame)
-                mkey := mac2uint64(dest)
+                dest := waterutil.IPv4Destination(frame)
+                mkey := ip4_uint32(dest)
+
                 // logger.Debug("mac dest: %v", dest)
                 if hpeer, found := srv.peers[mkey]; found {
                     if hpeer.inited {
@@ -245,11 +247,11 @@ func (srv *HopServer) forwardFrames() {
             logger.Debug("New UDP Packet from: %v", packet.addr)
 
             hPack, _ := unpackHopPacket(packet.data)
-            frame := hPack.frame
+            ipPack := hPack.frame
 
-            macSrc := waterutil.MACSource(frame)
-            logger.Debug("Mac Source: %v, opcode: %x", macSrc, hPack.opcode)
-            key := mac2uint64(macSrc)
+            ipSrc := waterutil.IPv4Source(ipPack)
+            logger.Debug("IP Source: %v, opcode: %x", ipSrc, hPack.opcode)
+            key := ip4_uint32(ipSrc)
 
             if hPack.opcode == HOP_REQ {
                 hp := newHopPeer(key, packet.addr, packet.channel)
@@ -259,7 +261,7 @@ func (srv *HopServer) forwardFrames() {
             if peer, ok := srv.peers[key]; ok {
                 peer.insertAddr(packet.addr, packet.channel)
             }
-            srv.iface.Write(frame)
+            srv.iface.Write(ipPack)
         }
 
     }

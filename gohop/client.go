@@ -114,7 +114,7 @@ func NewClient(cfgFile string) error {
     logger.Debug("%v", cltConfig)
     hopClient.config = cltConfig
 
-    iface, err := newTap("", cltConfig.addr)
+    iface, err := newTun("", cltConfig.addr)
     if err != nil {
         return err
     }
