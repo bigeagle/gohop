@@ -19,7 +19,7 @@ _cgo_export.*
 
 _testmain.go
 
-/main
+/gohop
 *.exe
 *.swp
 *~
