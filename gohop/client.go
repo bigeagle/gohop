@@ -100,18 +100,21 @@ func clientParseConfig(cfgFile string) (*hopClientConfig, error) {
 }
 
 func NewClient(cfgFile string) error {
+    cltConfig, err := clientParseConfig(cfgFile)
+    if err != nil {
+        return err
+    }
+    logger.Debug("%v", cltConfig)
+    cipher, err = newHopCipher([]byte(cltConfig.key))
+    if err != nil {
+        return err
+    }
+
     hopClient := new(HopClient)
     hopClient.ifaceIn = make(chan []byte, 32)
     hopClient.ifaceOut = make(chan []byte, 32)
     hopClient.netIn = make(chan []byte, 32)
     hopClient.netOut = make(chan []byte, 32)
-
-    cltConfig, err := clientParseConfig(cfgFile)
-    if err != nil {
-        return err
-    }
-
-    logger.Debug("%v", cltConfig)
     hopClient.config = cltConfig
 
     iface, err := newTun("", cltConfig.addr)
@@ -160,8 +163,8 @@ func (clt *HopClient) handleInterface() {
             logger.Error(err.Error())
             return
         }
-        frame := make([]byte, n+1)
-        copy(frame[1:], buf[0:n])
+        frame := make([]byte, n)
+        copy(frame, buf[0:n])
 
         // frame -> ifaceIn -> netOut
         clt.ifaceIn <- frame
@@ -178,8 +181,8 @@ func (clt *HopClient) handleUDP(server string, idx int) {
     go func() {
         for {
             frame := <-clt.netOut
-            frame[0] = opcode
-            udpConn.Write(frame)
+            hp := &HopPacket{opcode, frame}
+            udpConn.Write(hp.Pack())
         }
     }()
 
@@ -194,16 +197,13 @@ func (clt *HopClient) handleUDP(server string, idx int) {
         }
 
         hp, _ := unpackHopPacket(buf[:n])
-        pack := make([]byte, n-1)
 
         if hp.opcode == HOP_ACK {
             opcode = HOP_DAT
             logger.Info("Connection Initialized")
         }
 
-        copy(pack, hp.frame)
-
         // pack -> netIn -> ifaceOut
-        clt.netIn <- pack
+        clt.netIn <- hp.frame
     }
 }

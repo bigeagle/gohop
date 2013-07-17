@@ -7,5 +7,5 @@ import (
 var logger = logging.GetLogger()
 
 const (
-    TAPBUFSIZE = 1522
+    TAPBUFSIZE = 1536
 )

@@ -3,8 +3,6 @@
 package gohop
 
 import (
-    "bytes"
-    "encoding/binary"
     "net"
 )
 
@@ -19,17 +17,22 @@ type HopPacket struct {
     frame  []byte
 }
 
+var cipher *hopCipher
+
 func (p *HopPacket) Pack() []byte {
-    buf := bytes.NewBuffer(make([]byte, 0, len(p.frame)+1))
-    binary.Write(buf, binary.BigEndian, p.opcode)
-    buf.Write(p.frame)
-    return buf.Bytes()
+    packet := append(p.frame, byte(p.opcode))
+    return cipher.encrypt(packet)
 }
 
 func unpackHopPacket(b []byte) (*HopPacket, error) {
+    iv := b[:cipherBlockSize]
+    ctext := b[cipherBlockSize:]
+    buf := cipher.decrypt(iv, ctext)
+
     p := new(HopPacket)
-    p.opcode = uint8(b[0])
-    p.frame = b[1:]
+    lst := len(buf) - 1
+    p.opcode = uint8(buf[lst])
+    p.frame = buf[:lst]
     return p, nil
 }
 

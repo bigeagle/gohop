@@ -118,18 +118,20 @@ func serverParseConfig(cfgFile string) (*hopServerConfig, error) {
 }
 
 func NewServer(cfgFile string) error {
+    srvConfig, err := serverParseConfig(cfgFile)
+    if err != nil {
+        return err
+    }
+    logger.Debug("%v", srvConfig)
+    cipher, err = newHopCipher([]byte(srvConfig.key))
+    if err != nil {
+        return err
+    }
 
     hopServer := new(HopServer)
     hopServer.netInput = make(chan *udpPacket, 32)
     hopServer.ifaceInput = make(chan []byte, 32)
     hopServer.peers = make(map[uint32]*HopPeer)
-
-    srvConfig, err := serverParseConfig(cfgFile)
-    if err != nil {
-        return err
-    }
-
-    logger.Debug("%v", srvConfig)
     hopServer.config = srvConfig
     hopServer.netOutputs = make([]chan *udpPacket, len(srvConfig.ports))
 
@@ -157,8 +159,8 @@ func NewServer(cfgFile string) error {
         }
 
         // leave one byte for opcode
-        frame := make([]byte, n+1)
-        copy(frame[1:], buf[0:n])
+        frame := make([]byte, n)
+        copy(frame, buf[0:n])
         hopServer.ifaceInput <- frame
     }
 
@@ -188,10 +190,13 @@ func (srv *HopServer) listenAndServe(port string, idx int) {
     }()
 
     for {
+        var plen int
         packet := new(udpPacket)
         packet.channel = idx
-        packet.data = make([]byte, TAPBUFSIZE)
-        _, packet.addr, err = udpConn.ReadFrom(packet.data)
+        buf := make([]byte, TAPBUFSIZE)
+        plen, packet.addr, err = udpConn.ReadFrom(buf)
+
+        packet.data = buf[:plen]
         if err != nil {
             logger.Error(err.Error())
             return
@@ -208,39 +213,24 @@ func (srv *HopServer) forwardFrames() {
         case pack := <-srv.ifaceInput:
             // logger.Debug("New iface Frame")
             // first byte is left for opcode
-            frame := pack[1:]
-            if !waterutil.IsBroadcast(frame) {
+            dest := waterutil.IPv4Destination(pack)
+            mkey := ip4_uint32(dest)
 
-                // unicast ethernet packet
-                dest := waterutil.IPv4Destination(frame)
-                mkey := ip4_uint32(dest)
-
-                // logger.Debug("mac dest: %v", dest)
-                if hpeer, found := srv.peers[mkey]; found {
-                    if hpeer.inited {
-                        pack[0] = HOP_DAT
-                    } else {
-                        hpeer.inited = true
-                        pack[0] = HOP_ACK
-                    }
-
-                    // logger.Debug("Peer: %v", hpeer)
-                    if addr, idx, ok := hpeer.addr(); ok {
-                        upacket := &udpPacket{addr, pack, idx}
-                        srv.netOutputs[idx] <- upacket
-                    }
-                }
-            } else {
-                // broadcast packet
-                for _, peer := range srv.peers {
-                    pack[0] = HOP_DAT
-
-                    if addr, idx, ok := peer.addr(); ok {
-                        upacket := &udpPacket{addr, pack, idx}
-                        srv.netOutputs[idx] <- upacket
-                    }
+            // logger.Debug("mac dest: %v", dest)
+            if hpeer, found := srv.peers[mkey]; found {
+                opcode := HOP_DAT
+                if ! hpeer.inited {
+                    hpeer.inited = true
+                    opcode = HOP_ACK
                 }
 
+                hp := &HopPacket{opcode, pack}
+
+                // logger.Debug("Peer: %v", hpeer)
+                if addr, idx, ok := hpeer.addr(); ok {
+                    upacket := &udpPacket{addr, hp.Pack(), idx}
+                    srv.netOutputs[idx] <- upacket
+                }
             }
 
         case packet := <-srv.netInput:
