@@ -1,4 +1,4 @@
-package gohop
+package hop
 
 import (
     "github.com/bigeagle/gohop/logging"

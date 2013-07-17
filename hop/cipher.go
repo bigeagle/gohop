@@ -1,4 +1,4 @@
-package gohop
+package hop
 
 import (
     "bytes"

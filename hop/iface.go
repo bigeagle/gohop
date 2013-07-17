@@ -1,7 +1,7 @@
 // Handle virtual interfaces
 // author: Justin Wong
 
-package gohop
+package hop
 
 import (
     "net"

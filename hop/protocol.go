@@ -1,6 +1,6 @@
 // gohop packet format and session protocols
 
-package gohop
+package hop
 
 import (
     "net"

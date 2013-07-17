@@ -3,7 +3,7 @@ package main
 import (
     "flag"
     //"fmt"
-    "github.com/bigeagle/gohop/gohop"
+    "github.com/bigeagle/gohop/hop"
     "github.com/bigeagle/gohop/logging"
 )
 
@@ -33,7 +33,7 @@ func main() {
     logger.Info("using config file: %v", cfgFile)
 
     if srvMode {
-        err := gohop.NewServer(cfgFile)
+        err := hop.NewServer(cfgFile)
         if err != nil {
             logger.Error(err.Error())
             return
@@ -41,7 +41,7 @@ func main() {
 
     }
     if cltMode {
-        err := gohop.NewClient(cfgFile)
+        err := hop.NewClient(cfgFile)
         if err != nil {
             logger.Error(err.Error())
             return
