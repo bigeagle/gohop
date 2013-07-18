@@ -21,9 +21,9 @@ type hopServerConfig struct {
 // a udpPacket
 type udpPacket struct {
     // client's addr
-    addr    net.Addr
+    addr net.Addr
     // data
-    data    []byte
+    data []byte
     // channel index
     channel int
 }
@@ -32,18 +32,17 @@ type HopServer struct {
     // config
     config *hopServerConfig
     // interface
-    iface  *water.Interface
+    iface *water.Interface
     // client peers, key is the mac address, value is a HopPeer record
     peers map[uint32]*HopPeer
 
     // channel to put in packets read from udpsocket
-    netInput   chan *udpPacket
+    netInput chan *udpPacket
     // channels to put packets to send through udpsocket
     netOutputs []chan *udpPacket
     // channel to put frames read from tun/tap device
     ifaceInput chan []byte
 }
-
 
 // read and parse config file
 func serverParseConfig(cfgFile string) (*hopServerConfig, error) {
@@ -216,10 +215,10 @@ func (srv *HopServer) forwardFrames() {
             dest := waterutil.IPv4Destination(pack)
             mkey := ip4_uint32(dest)
 
-            // logger.Debug("mac dest: %v", dest)
+            logger.Debug("ip dest: %v", dest)
             if hpeer, found := srv.peers[mkey]; found {
                 opcode := HOP_DAT
-                if ! hpeer.inited {
+                if !hpeer.inited {
                     hpeer.inited = true
                     opcode = HOP_ACK
                 }

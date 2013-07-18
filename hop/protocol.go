@@ -40,10 +40,9 @@ func unpackHopPacket(b []byte) (*HopPacket, error) {
 type HopPeer struct {
     id         uint32
     addrs      map[net.Addr]int
-    _addrs_lst []net.Addr   // i know it's ugly!
-    inited     bool         // whether a connection is initialized
+    _addrs_lst []net.Addr // i know it's ugly!
+    inited     bool       // whether a connection is initialized
 }
-
 
 func newHopPeer(id uint32, addr net.Addr, idx int) *HopPeer {
     hp := new(HopPeer)

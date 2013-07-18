@@ -6,16 +6,28 @@ import (
     "io/ioutil"
     "net"
     "os"
+    "os/signal"
+    "syscall"
+    "time"
     //    "encoding/binary"
     "github.com/bigeagle/water"
 
 //    "github.com/bigeagle/water/waterutil"
 )
 
+var net_gateway, net_nic string
+
+type route struct {
+    dest, nextHop, iface string
+}
+
 type hopClientConfig struct {
     servers []string
     key     string
     addr    string
+    // redirect gateway
+    regw   bool
+    routes []*route
 }
 
 type HopClient struct {
@@ -94,6 +106,36 @@ func clientParseConfig(cfgFile string) (*hopClientConfig, error) {
             return nil, errors.New("Addr config not found")
         }
 
+        if iregw, found := cfg["redirect_gateway"]; found {
+            if regw, ok := iregw.(bool); ok {
+                cltConfig.regw = regw
+            } else {
+                return nil, errors.New("Invalid Gateway Redirect Config")
+            }
+        } else {
+            cltConfig.regw = false
+        }
+
+        net_gateway, net_nic, err = getNetGateway()
+        logger.Debug("Net Gateway: %s %s", net_gateway, net_nic)
+        if err != nil {
+            return nil, err
+        }
+
+        if iroutes, found := cfg["net_gateway"]; found {
+            cltConfig.routes = make([]*route, 0)
+            if routes, ok := iroutes.([]interface{}); ok {
+                for _, v := range routes {
+                    if destNet, ok := v.(string); ok {
+                        r := &route{destNet, net_gateway, net_nic}
+                        cltConfig.routes = append(cltConfig.routes, r)
+                    } else {
+                        return nil, errors.New("Invalid Route config")
+                    }
+                }
+
+            }
+        }
     }
 
     return cltConfig, nil
@@ -129,6 +171,24 @@ func NewClient(cfgFile string) error {
         go hopClient.handleUDP(server, i)
     }
 
+    go func() {
+        defer hopClient.cleanUp()
+        for _, route := range cltConfig.routes {
+            addRoute(route.dest, route.nextHop, route.iface)
+        }
+    }()
+
+    if cltConfig.regw {
+        go func() {
+            time.Sleep(2 * time.Second)
+            err = redirectGateway(iface.Name(), tun_peer.String())
+            if err != nil {
+                logger.Error(err.Error())
+                return
+            }
+        }()
+    }
+
     for {
         // forward
         select {
@@ -138,6 +198,7 @@ func NewClient(cfgFile string) error {
             hopClient.ifaceOut <- packet
         }
     }
+
     return nil
 }
 
@@ -175,12 +236,29 @@ func (clt *HopClient) handleUDP(server string, idx int) {
     udpAddr, _ := net.ResolveUDPAddr("udp", server)
     udpConn, _ := net.DialUDP("udp", nil, udpAddr)
 
+    logger.Debug(udpConn.RemoteAddr().String())
+
+    // add route through net gateway
+    if clt.config.regw {
+        if udpAddr, ok := udpConn.RemoteAddr().(*net.UDPAddr); ok {
+            srvIP := udpAddr.IP.To4()
+            if srvIP != nil {
+                srvDest := srvIP.String() + "/32"
+                addRoute(srvDest, net_gateway, net_nic)
+            }
+        }
+    }
+
     opcode := HOP_REQ
 
     // forward iface frames to network
     go func() {
         for {
             frame := <-clt.netOut
+            logger.Debug("New iface frame")
+            // dest := waterutil.IPv4Destination(frame)
+            // logger.Debug("ip dest: %v", dest)
+
             hp := &HopPacket{opcode, frame}
             udpConn.Write(hp.Pack())
         }
@@ -206,4 +284,15 @@ func (clt *HopClient) handleUDP(server string, idx int) {
         // pack -> netIn -> ifaceOut
         clt.netIn <- hp.frame
     }
+}
+
+func (clt *HopClient) cleanUp() {
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+    <-c
+
+    for _, route := range clt.config.routes {
+        delRoute(route.dest)
+    }
+    os.Exit(0)
 }

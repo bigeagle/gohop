@@ -3,13 +3,12 @@ package hop
 import (
     "bytes"
     "crypto/aes"
-    "crypto/rand"
     _cipher "crypto/cipher"
+    "crypto/rand"
 )
 
-
 type hopCipher struct {
-    block       _cipher.Block
+    block _cipher.Block
 }
 
 const cipherBlockSize = 16
@@ -25,11 +24,11 @@ func newHopCipher(key []byte) (*hopCipher, error) {
     return s, nil
 }
 
-func (s *hopCipher) encrypt(msg []byte) ([]byte) {
+func (s *hopCipher) encrypt(msg []byte) []byte {
     pmsg := PKCS5Padding(msg, cipherBlockSize)
-    buf := make([]byte, len(pmsg) + cipherBlockSize)
+    buf := make([]byte, len(pmsg)+cipherBlockSize)
 
-    iv :=  buf[:cipherBlockSize]
+    iv := buf[:cipherBlockSize]
     rand.Read(iv)
     encrypter := _cipher.NewCBCEncrypter(s.block, iv)
     encrypter.CryptBlocks(buf[cipherBlockSize:], pmsg)
@@ -37,16 +36,15 @@ func (s *hopCipher) encrypt(msg []byte) ([]byte) {
     return buf
 }
 
-func (s *hopCipher) decrypt(iv []byte, ctext []byte) ([]byte) {
+func (s *hopCipher) decrypt(iv []byte, ctext []byte) []byte {
     decrypter := _cipher.NewCBCDecrypter(s.block, iv)
     buf := make([]byte, len(ctext))
     decrypter.CryptBlocks(buf, ctext)
     return PKCS5UnPadding(buf)
 }
 
-
 func PKCS5Padding(ciphertext []byte, blockSize int) []byte {
-    padding := blockSize - len(ciphertext) % blockSize
+    padding := blockSize - len(ciphertext)%blockSize
     padtext := bytes.Repeat([]byte{byte(padding)}, padding)
     return append(ciphertext, padtext...)
 }
