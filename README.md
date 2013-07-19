@@ -32,6 +32,11 @@ I think it would not be very difficult to port it to OS X. Howerver, I'm not abl
 
 How To Use
 ------
+## Download
+You can get updated release from https://github.com/bigeagle/gohop/releases , go programms are static-linked, so it's very likely that my prebuilt releases can run on your box.
+
+## Build and Install
+
 There's no prebuilt binary relase yet, u need to compile it yourself. Go 1.1 enviroment is needed, google is your friend.
 
 First get dependency libraries and gohop source code.
@@ -47,6 +52,8 @@ build and install:
 ```
 go install github.com/bigeagle/gohop
 ```
+
+## Config and Run
 
 on the server, if u are using it for anti-GFW internet access, ip forwarding is needed:
 
@@ -67,6 +74,3 @@ gohop -client client.json
 wait until u see `Connection Initialized`, pay attention to your DNS config, if u are using a Chinese DNS server, u're still unable to access blocked websites.
 
 now try to ping `twitter.com` and cheers :).
-
-
-
