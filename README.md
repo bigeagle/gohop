@@ -32,10 +32,10 @@ I think it would not be very difficult to port it to OS X. Howerver, I'm not abl
 
 How To Use
 ------
-## Download
-You can get updated release from https://github.com/bigeagle/gohop/releases , go programms are static-linked, so it's very likely that my prebuilt releases can run on your box.
+### Download
+You can get updated release from https://github.com/bigeagle/gohop/releases , go programs are static-linked, so it's very likely that my prebuilt releases can run on your box.
 
-## Build and Install
+### Build and Install
 
 There's no prebuilt binary relase yet, u need to compile it yourself. Go 1.1 enviroment is needed, google is your friend.
 
@@ -53,7 +53,7 @@ build and install:
 go install github.com/bigeagle/gohop
 ```
 
-## Config and Run
+### Config and Run
 
 on the server, if u are using it for anti-GFW internet access, ip forwarding is needed:
 
