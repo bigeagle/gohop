@@ -28,3 +28,45 @@ Implemention
 -------
 This project will be implemented in golang, a fast, static typed and human-friendly language developed by google. VPN connection will be build on top of Linux's `tun/tap` device. I have no plan to port it to windows or OS X.
 
+I think it would not be very difficult to port it to OS X. Howerver, I'm not able to develop a OS X edition as I'm not a mac owner. If u wanna help, please fork and send me pull requests, I'd appreciate it.
+
+How To Use
+------
+There's no prebuilt binary relase yet, u need to compile it yourself. Go 1.1 enviroment is needed, google is your friend.
+
+First get dependency libraries and gohop source code.
+
+```
+go get github.com/bigeagle/go-logging
+go get github.com/bigeagle/water
+go get github.com/bigeagle/gohop
+```
+
+build and install:
+
+```
+go install github.com/bigeagle/gohop
+```
+
+on the server, if u are using it for anti-GFW internet access, ip forwarding is needed:
+
+```
+sysctl net.ipv4.ip_forward=1
+iptables -t nat -A POSTROUTING -j MASQUERADE
+```
+
+edit `config.json` as your server's config file, **currently u need to set ip address manually**. Run
+```
+gohop -server server.json
+```
+
+at client side, edit `client.json` as your config file, custom routes is supported so that in-china network packets will not go through gohop. And again, **u need to set ip address manually**. Run
+```
+gohop -client client.json
+```
+wait until u see `Connection Initialized`, pay attention to your DNS config, if u are using a Chinese DNS server, u're still unable to access blocked websites.
+
+now try to ping `twitter.com` and cheers :).
+
+
+
