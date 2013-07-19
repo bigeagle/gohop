@@ -1,5 +1,5 @@
 {
     "ports": [":1234", ":1235"],
     "key": "ilovethebigbrother",
-    "addr": "10.0.0.1/24",
+    "addr": "10.0.0.1/24"
 }

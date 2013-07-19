@@ -62,7 +62,7 @@ sysctl net.ipv4.ip_forward=1
 iptables -t nat -A POSTROUTING -j MASQUERADE
 ```
 
-edit `config.json` as your server's config file, **currently u need to set ip address manually**. Run
+edit `server.json` as your server's config file, **currently u need to set ip address manually**. Run
 ```
 gohop -server server.json
 ```
