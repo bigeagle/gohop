@@ -51,13 +51,14 @@ func unpackHopPacket(b []byte) (*HopPacket, error) {
     lst := len(buf) - 1
     p.opcode = uint8(buf[lst])
     p.frame = buf[:lst]
+    buf = nil
     return p, nil
 }
 
 // gohop Peer is a record of a peer's available UDP addrs
 type HopPeer struct {
     id         uint32
-    addrs      map[net.Addr]int
+    addrs      map[string]int
     _addrs_lst []net.Addr // i know it's ugly!
     inited     bool       // whether a connection is initialized
 }
@@ -66,25 +67,27 @@ func newHopPeer(id uint32, addr net.Addr, idx int) *HopPeer {
     hp := new(HopPeer)
     hp.id = id
     hp._addrs_lst = make([]net.Addr, 0)
-    hp.addrs = make(map[net.Addr]int)
+    hp.addrs = make(map[string]int)
     hp.inited = false
 
     hp._addrs_lst = append(hp._addrs_lst, addr)
-    hp.addrs[addr] = idx
+    hp.addrs[addr.String()] = idx
 
     return hp
 }
 
 func (h *HopPeer) addr() (net.Addr, int, bool) {
     addr := randAddr(h._addrs_lst)
-    idx, ok := h.addrs[addr]
+    idx, ok := h.addrs[addr.String()]
 
     return addr, idx, ok
 }
 
 func (h *HopPeer) insertAddr(addr net.Addr, idx int) {
-    if _, found := h.addrs[addr]; !found {
-        h.addrs[addr] = idx
+    k := addr.String()
+    if _, found := h.addrs[k]; !found {
+        h.addrs[k] = idx
         h._addrs_lst = append(h._addrs_lst, addr)
+        //logger.Info("%v %d", addr, len(h._addrs_lst))
     }
 }
