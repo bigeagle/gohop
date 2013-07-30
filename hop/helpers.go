@@ -39,7 +39,7 @@ func ip4_uint32(ip net.IP) (i uint32) {
     return i
 }
 
-func randAddr(a []net.Addr) net.Addr {
+func randAddr(a []*hUDPAddr) *hUDPAddr {
     i := rand.Intn(len(a))
     return a[i]
 }

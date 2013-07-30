@@ -39,7 +39,7 @@ type hopServerConfig struct {
 // a udpPacket
 type udpPacket struct {
     // client's addr
-    addr net.Addr
+    addr *net.UDPAddr
     // data
     data []byte
     // channel index
@@ -211,7 +211,7 @@ func (srv *HopServer) listenAndServe(port string, idx int) {
         packet := new(udpPacket)
         packet.channel = idx
         buf := make([]byte, TAPBUFSIZE)
-        plen, packet.addr, err = udpConn.ReadFrom(buf)
+        plen, packet.addr, err = udpConn.ReadFromUDP(buf)
 
         packet.data = buf[:plen]
         if err != nil {

@@ -55,39 +55,59 @@ func unpackHopPacket(b []byte) (*HopPacket, error) {
     return p, nil
 }
 
+
+func udpAddrHash(a *net.UDPAddr) [6]byte{
+    var b [6]byte
+    copy(b[:4], []byte(a.IP)[:4])
+    p := uint16(a.Port)
+    b[4] = byte((p >> 8) & 0xFF)
+    b[5] = byte(p & 0xFF)
+    return b
+}
+
+type hUDPAddr struct {
+    u *net.UDPAddr
+    hash [6]byte
+}
+
+func newhUDPAddr(a *net.UDPAddr) *hUDPAddr {
+    return &hUDPAddr{a, udpAddrHash(a)}
+}
+
 // gohop Peer is a record of a peer's available UDP addrs
 type HopPeer struct {
     id         uint32
-    addrs      map[string]int
-    _addrs_lst []net.Addr // i know it's ugly!
+    addrs      map[[6]byte]int
+    _addrs_lst []*hUDPAddr // i know it's ugly!
     inited     bool       // whether a connection is initialized
 }
 
-func newHopPeer(id uint32, addr net.Addr, idx int) *HopPeer {
+func newHopPeer(id uint32, addr *net.UDPAddr, idx int) *HopPeer {
     hp := new(HopPeer)
     hp.id = id
-    hp._addrs_lst = make([]net.Addr, 0)
-    hp.addrs = make(map[string]int)
+    hp._addrs_lst = make([]*hUDPAddr, 0)
+    hp.addrs = make(map[[6]byte]int)
     hp.inited = false
 
-    hp._addrs_lst = append(hp._addrs_lst, addr)
-    hp.addrs[addr.String()] = idx
+    a := newhUDPAddr(addr)
+    hp._addrs_lst = append(hp._addrs_lst, a)
+    hp.addrs[a.hash] = idx
 
     return hp
 }
 
-func (h *HopPeer) addr() (net.Addr, int, bool) {
+func (h *HopPeer) addr() (*net.UDPAddr, int, bool) {
     addr := randAddr(h._addrs_lst)
-    idx, ok := h.addrs[addr.String()]
+    idx, ok := h.addrs[addr.hash]
 
-    return addr, idx, ok
+    return addr.u, idx, ok
 }
 
-func (h *HopPeer) insertAddr(addr net.Addr, idx int) {
-    k := addr.String()
-    if _, found := h.addrs[k]; !found {
-        h.addrs[k] = idx
-        h._addrs_lst = append(h._addrs_lst, addr)
+func (h *HopPeer) insertAddr(addr *net.UDPAddr, idx int) {
+    a := newhUDPAddr(addr)
+    if _, found := h.addrs[a.hash]; !found {
+        h.addrs[a.hash] = idx
+        h._addrs_lst = append(h._addrs_lst, a)
         //logger.Info("%v %d", addr, len(h._addrs_lst))
     }
 }
