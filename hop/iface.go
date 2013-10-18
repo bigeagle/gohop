@@ -59,7 +59,7 @@ func newTun(name string, addr string) (iface *water.Interface, err error) {
     }
     logger.Info("interface %v created", iface.Name())
 
-    sargs := fmt.Sprintf("link set dev %s up mtu 1500", iface.Name())
+    sargs := fmt.Sprintf("link set dev %s up mtu %d", iface.Name(), MTU)
     args := strings.Split(sargs, " ")
     cmd := exec.Command("ip", args...)
     logger.Info("ip %s", sargs)

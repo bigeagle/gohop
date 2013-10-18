@@ -52,11 +52,11 @@ type HopClient struct {
     config *hopClientConfig
     iface  *water.Interface
 
-    ifaceIn  chan []byte
-    ifaceOut chan []byte
+    fromIface  chan []byte
+    toIface chan *HopPacket
 
-    netIn  chan []byte
-    netOut chan []byte
+    fromNet  chan *HopPacket
+    toNet chan []byte
 }
 
 func clientParseConfig(cfgFile string) (*hopClientConfig, error) {
@@ -171,10 +171,10 @@ func NewClient(cfgFile string) error {
     }
 
     hopClient := new(HopClient)
-    hopClient.ifaceIn = make(chan []byte, 32)
-    hopClient.ifaceOut = make(chan []byte, 32)
-    hopClient.netIn = make(chan []byte, 32)
-    hopClient.netOut = make(chan []byte, 32)
+    hopClient.fromIface = make(chan []byte, 32)
+    hopClient.toIface = make(chan *HopPacket, 32)
+    hopClient.fromNet = make(chan *HopPacket, 32)
+    hopClient.toNet = make(chan []byte, 32)
     hopClient.config = cltConfig
 
     iface, err := newTun("", cltConfig.addr)
@@ -207,13 +207,27 @@ func NewClient(cfgFile string) error {
         }()
     }
 
+    hpBuf := newHopPacketBuffer()
+
+    go func() {
+        ticker := time.NewTicker(10 * time.Millisecond)
+        for {
+            <-ticker.C
+            hpBuf.flushToChan(hopClient.toIface)
+        }
+    }()
+
     for {
         // forward
         select {
-        case frame := <-hopClient.ifaceIn:
-            hopClient.netOut <- frame
-        case packet := <-hopClient.netIn:
-            hopClient.ifaceOut <- packet
+        case frame := <-hopClient.fromIface:
+            hopClient.toNet <- frame
+        case packet := <-hopClient.fromNet:
+            // logger.Debug("New HopPacket Seq: %d", packet.Seq)
+            if err := hpBuf.push(packet); err != nil {
+                logger.Debug("buffer full, flushing")
+                hpBuf.flushToChan(hopClient.toIface)
+            }
         }
     }
 
@@ -224,10 +238,10 @@ func (clt *HopClient) handleInterface() {
     // network packet to interface
     go func() {
         for {
-            frame := <-clt.ifaceOut
-            logger.Debug("New Net packet to device")
-            n, err := clt.iface.Write(frame)
-            logger.Debug("n: %d, len: %d", n, len(frame))
+            hp := <-clt.toIface
+            // logger.Debug("New Net packet to device")
+            n, err := clt.iface.Write(hp.payload)
+            logger.Debug("n: %d, len: %d", n, len(hp.payload))
             if err != nil {
                 logger.Error(err.Error())
                 return
@@ -235,7 +249,7 @@ func (clt *HopClient) handleInterface() {
         }
     }()
 
-    buf := make([]byte, TAPBUFSIZE)
+    buf := make([]byte, MTU)
     for {
         n, err := clt.iface.Read(buf)
         if err != nil {
@@ -245,8 +259,8 @@ func (clt *HopClient) handleInterface() {
         frame := make([]byte, n)
         copy(frame, buf[0:n])
 
-        // frame -> ifaceIn -> netOut
-        clt.ifaceIn <- frame
+        // frame -> fromIface -> toNet
+        clt.fromIface <- frame
     }
 }
 
@@ -267,26 +281,31 @@ func (clt *HopClient) handleUDP(server string, idx int) {
         }
     }
 
-    opcode := HOP_REQ
+    status := HOP_STAT_INIT
 
     // forward iface frames to network
     go func() {
         for {
-            frame := <-clt.netOut
-            logger.Debug("New iface frame")
+            frame := <-clt.toNet
+            // logger.Debug("New iface frame")
             // dest := waterutil.IPv4Destination(frame)
             // logger.Debug("ip dest: %v", dest)
 
-            hp := &HopPacket{opcode, frame}
+            hp := new(HopPacket)
+            switch status {
+            case HOP_STAT_INIT:
+                hp.Flag = HOP_FLG_PSH
+            }
+            hp.payload = frame
             udpConn.Write(hp.Pack())
         }
     }()
 
-    buf := make([]byte, TAPBUFSIZE)
+    buf := make([]byte, IFACE_BUFSIZE)
 
     for {
         n, err := udpConn.Read(buf)
-        logger.Debug("New UDP Packet")
+        logger.Debug("New UDP Packet, len: %d", n)
         if err != nil {
             logger.Error(err.Error())
             return
@@ -294,13 +313,13 @@ func (clt *HopClient) handleUDP(server string, idx int) {
 
         hp, _ := unpackHopPacket(buf[:n])
 
-        if hp.opcode == HOP_ACK {
-            opcode = HOP_DAT
+        if hp.Flag == HOP_FLG_ACK {
+            status = HOP_STAT_WORKING
             logger.Info("Connection Initialized")
         }
 
-        // pack -> netIn -> ifaceOut
-        clt.netIn <- hp.frame
+        // pack -> fromNet -> toIface
+        clt.fromNet <- hp
     }
 }
 

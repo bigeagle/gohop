@@ -22,36 +22,56 @@ package hop
 
 import (
     "net"
+    "bytes"
+    "encoding/binary"
 )
 
 const (
     HOP_REQ uint8 = 0x20
     HOP_ACK uint8 = 0xAC
     HOP_DAT uint8 = 0xDA
+
+    HOP_FLG_PSH byte = 0x80  // port knocking and heartbeat
+    HOP_FLG_HSH byte = 0x60  // handshaking
+    HOP_FLG_FIN byte = 0x40  // finish session
+    HOP_FLG_MFR byte = 0x20  // more fragments
+    HOP_FLG_ACK byte = 0x08  // acknowledge
+
+    HOP_STAT_INIT uint8 = iota  // initing
+    HOP_STAT_HANDSHAKE          // handeshaking
+    HOP_STAT_WORKING            // working
+    HOP_STAT_FIN                // finishing
 )
 
+type hopPacketHeader struct {
+    Flag byte
+    Seq  uint32
+    Frag uint8
+    Dlen uint16
+}
+
 type HopPacket struct {
-    opcode uint8
-    frame  []byte
+    hopPacketHeader
+    payload  []byte
 }
 
 var cipher *hopCipher
 
 func (p *HopPacket) Pack() []byte {
-    packet := append(p.frame, byte(p.opcode))
-    return cipher.encrypt(packet)
+    buf := bytes.NewBuffer(make([]byte, 0, 8+len(p.payload)))
+    binary.Write(buf, binary.BigEndian, p.hopPacketHeader)
+    buf.Write(p.payload)
+    return cipher.encrypt(buf.Bytes())
 }
 
 func unpackHopPacket(b []byte) (*HopPacket, error) {
     iv := b[:cipherBlockSize]
     ctext := b[cipherBlockSize:]
-    buf := cipher.decrypt(iv, ctext)
+    buf := bytes.NewBuffer(cipher.decrypt(iv, ctext))
 
     p := new(HopPacket)
-    lst := len(buf) - 1
-    p.opcode = uint8(buf[lst])
-    p.frame = buf[:lst]
-    buf = nil
+    binary.Read(buf, binary.BigEndian, &p.hopPacketHeader)
+    p.payload = buf.Bytes()
     return p, nil
 }
 
@@ -80,6 +100,7 @@ type HopPeer struct {
     addrs      map[[6]byte]int
     _addrs_lst []*hUDPAddr // i know it's ugly!
     inited     bool       // whether a connection is initialized
+    seq        uint32
 }
 
 func newHopPeer(id uint32, addr *net.UDPAddr, idx int) *HopPeer {
@@ -88,6 +109,7 @@ func newHopPeer(id uint32, addr *net.UDPAddr, idx int) *HopPeer {
     hp._addrs_lst = make([]*hUDPAddr, 0)
     hp.addrs = make(map[[6]byte]int)
     hp.inited = false
+    hp.seq = 0
 
     a := newhUDPAddr(addr)
     hp._addrs_lst = append(hp._addrs_lst, a)

@@ -58,6 +58,7 @@ func main() {
         }
 
     }
+
     if cltMode {
         err := hop.NewClient(cfgFile)
         if err != nil {

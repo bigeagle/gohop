@@ -25,5 +25,6 @@ import (
 var logger = logging.GetLogger()
 
 const (
-    TAPBUFSIZE = 1536
+    MTU = 1450
+    IFACE_BUFSIZE = 1500
 )

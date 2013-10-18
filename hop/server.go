@@ -55,11 +55,11 @@ type HopServer struct {
     peers map[uint32]*HopPeer
 
     // channel to put in packets read from udpsocket
-    netInput chan *udpPacket
+    fromNet chan *udpPacket
     // channels to put packets to send through udpsocket
-    netOutputs []chan *udpPacket
+    toNet []chan *udpPacket
     // channel to put frames read from tun/tap device
-    ifaceInput chan []byte
+    fromIface chan []byte
 }
 
 // read and parse config file
@@ -146,11 +146,11 @@ func NewServer(cfgFile string) error {
     }
 
     hopServer := new(HopServer)
-    hopServer.netInput = make(chan *udpPacket, 32)
-    hopServer.ifaceInput = make(chan []byte, 32)
+    hopServer.fromNet = make(chan *udpPacket, 32)
+    hopServer.fromIface = make(chan []byte, 32)
     hopServer.peers = make(map[uint32]*HopPeer)
     hopServer.config = srvConfig
-    hopServer.netOutputs = make([]chan *udpPacket, len(srvConfig.ports))
+    hopServer.toNet = make([]chan *udpPacket, len(srvConfig.ports))
 
     iface, err := newTun("", srvConfig.addr)
     if err != nil {
@@ -168,17 +168,16 @@ func NewServer(cfgFile string) error {
 
     logger.Debug("Recieving iface frames")
 
-    buf := make([]byte, TAPBUFSIZE)
+    buf := make([]byte, MTU)
     for {
         n, err := iface.Read(buf)
         if err != nil {
             return err
         }
 
-        // leave one byte for opcode
         frame := make([]byte, n)
         copy(frame, buf[0:n])
-        hopServer.ifaceInput <- frame
+        hopServer.fromIface <- frame
     }
 
 }
@@ -196,7 +195,7 @@ func (srv *HopServer) listenAndServe(port string, idx int) {
     }
 
     netOutput := make(chan *udpPacket, 32)
-    srv.netOutputs[idx] = netOutput
+    srv.toNet[idx] = netOutput
 
     go func() {
         for {
@@ -210,7 +209,7 @@ func (srv *HopServer) listenAndServe(port string, idx int) {
         var plen int
         packet := new(udpPacket)
         packet.channel = idx
-        buf := make([]byte, TAPBUFSIZE)
+        buf := make([]byte, IFACE_BUFSIZE)
         plen, packet.addr, err = udpConn.ReadFromUDP(buf)
 
         packet.data = buf[:plen]
@@ -219,7 +218,7 @@ func (srv *HopServer) listenAndServe(port string, idx int) {
             return
         }
 
-        srv.netInput <- packet
+        srv.fromNet <- packet
     }
 
 }
@@ -227,7 +226,7 @@ func (srv *HopServer) listenAndServe(port string, idx int) {
 func (srv *HopServer) forwardFrames() {
     for {
         select {
-        case pack := <-srv.ifaceInput:
+        case pack := <-srv.fromIface:
             // logger.Debug("New iface Frame")
             // first byte is left for opcode
             dest := waterutil.IPv4Destination(pack)
@@ -235,32 +234,36 @@ func (srv *HopServer) forwardFrames() {
 
             logger.Debug("ip dest: %v", dest)
             if hpeer, found := srv.peers[mkey]; found {
-                opcode := HOP_DAT
+                hp := new(HopPacket)
+                hp.Seq = hpeer.seq
+                hp.payload = pack
+                hpeer.seq += 1
+
                 if !hpeer.inited {
                     hpeer.inited = true
-                    opcode = HOP_ACK
+                    hp.Flag = HOP_FLG_ACK
                 }
 
-                hp := &HopPacket{opcode, pack}
 
                 // logger.Debug("Peer: %v", hpeer)
                 if addr, idx, ok := hpeer.addr(); ok {
                     upacket := &udpPacket{addr, hp.Pack(), idx}
-                    srv.netOutputs[idx] <- upacket
+                    srv.toNet[idx] <- upacket
                 }
             }
 
-        case packet := <-srv.netInput:
+        case packet := <-srv.fromNet:
             logger.Debug("New UDP Packet from: %v", packet.addr)
 
             hPack, _ := unpackHopPacket(packet.data)
-            ipPack := hPack.frame
+            // logger.Debug("%v", hPack)
+            ipPack := hPack.payload
 
             ipSrc := waterutil.IPv4Source(ipPack)
-            logger.Debug("IP Source: %v, opcode: %x", ipSrc, hPack.opcode)
+            logger.Debug("IP Source: %v, flag: %x", ipSrc, hPack.Flag)
             key := ip4_uint32(ipSrc)
 
-            if hPack.opcode == HOP_REQ {
+            if hPack.Flag == HOP_FLG_PSH {
                 hp := newHopPeer(key, packet.addr, packet.channel)
                 srv.peers[key] = hp
             }
