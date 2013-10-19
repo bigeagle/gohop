@@ -77,6 +77,11 @@ func NewServer(cfg HopServerConfig) error {
     // forward device frames to socket and socket packets to device
     go hopServer.forwardFrames()
 
+    go func() {
+        defer hopServer.cleanUp()
+        redirectPort(cfg.HopRange, cfg.Port)
+    }()
+
     // serve for multiple ports
    go hopServer.listenAndServe(cfg.Port)
 
@@ -117,11 +122,6 @@ func (srv *HopServer) listenAndServe(port string) {
             logger.Debug("client addr: %v", packet.addr)
             udpConn.WriteTo(packet.data, packet.addr)
         }
-    }()
-
-    go func() {
-        defer srv.cleanUp()
-        redirectPort(srv.cfg.HopRange, srv.cfg.Port)
     }()
 
     for {

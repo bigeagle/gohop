@@ -25,10 +25,8 @@ import (
     "syscall"
     "time"
     "fmt"
-    //    "encoding/binary"
+    "errors"
     "github.com/bigeagle/water"
-
-//    "github.com/bigeagle/water/waterutil"
 )
 
 var net_gateway, net_nic string
@@ -41,10 +39,9 @@ type HopClient struct {
     cfg HopClientConfig
     iface  *water.Interface
 
-    fromIface  chan []byte
     toIface chan *HopPacket
 
-    fromNet  chan *HopPacket
+    fromNet  *hopPacketBuffer
     toNet chan []byte
 }
 
@@ -60,10 +57,9 @@ func NewClient(cfg HopClientConfig) error {
 
 
     hopClient := new(HopClient)
-    hopClient.fromIface = make(chan []byte, 32)
     hopClient.toIface = make(chan *HopPacket, 32)
-    hopClient.fromNet = make(chan *HopPacket, 32)
     hopClient.toNet = make(chan []byte, 32)
+    hopClient.fromNet = newHopPacketBuffer()
     hopClient.cfg = cfg
 
     iface, err := newTun("", cfg.Addr)
@@ -72,7 +68,6 @@ func NewClient(cfg HopClientConfig) error {
     }
 
     hopClient.iface = iface
-    go hopClient.handleInterface()
 
     idx := 0
     for port := cfg.HopStart; port <= cfg.HopEnd; port++ {
@@ -109,31 +104,18 @@ func NewClient(cfg HopClientConfig) error {
         }()
     }
 
-    hpBuf := newHopPacketBuffer()
 
     go func() {
         ticker := time.NewTicker(10 * time.Millisecond)
         for {
             <-ticker.C
-            hpBuf.flushToChan(hopClient.toIface)
+            hopClient.fromNet.flushToChan(hopClient.toIface)
         }
     }()
 
-    for {
-        // forward
-        select {
-        case frame := <-hopClient.fromIface:
-            hopClient.toNet <- frame
-        case packet := <-hopClient.fromNet:
-            // logger.Debug("New HopPacket Seq: %d", packet.Seq)
-            if err := hpBuf.push(packet); err != nil {
-                logger.Debug("buffer full, flushing")
-                hpBuf.flushToChan(hopClient.toIface)
-            }
-        }
-    }
+    hopClient.handleInterface()
 
-    return nil
+    return errors.New("Not expected to exit")
 }
 
 func (clt *HopClient) handleInterface() {
@@ -162,7 +144,7 @@ func (clt *HopClient) handleInterface() {
         copy(frame, buf[0:n])
 
         // frame -> fromIface -> toNet
-        clt.fromIface <- frame
+        clt.toNet <- frame
     }
 }
 
@@ -220,8 +202,11 @@ func (clt *HopClient) handleUDP(server string, idx int) {
             logger.Info("Connection Initialized")
         }
 
-        // pack -> fromNet -> toIface
-        clt.fromNet <- hp
+        // logger.Debug("New HopPacket Seq: %d", packet.Seq)
+        if err := clt.fromNet.push(hp); err != nil {
+            logger.Debug("buffer full, flushing")
+            clt.fromNet.flushToChan(clt.toIface)
+        }
     }
 }
 
