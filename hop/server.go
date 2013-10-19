@@ -28,6 +28,7 @@ import (
     "os"
     "os/signal"
     "syscall"
+    "time"
 )
 
 // a udpPacket
@@ -134,7 +135,7 @@ func (srv *HopServer) listenAndServe(port string) {
     go func() {
         for {
             packet := <-srv.toNet
-            logger.Debug("client addr: %v", packet.addr)
+            // logger.Debug("client addr: %v", packet.addr)
             udpConn.WriteTo(packet.data, packet.addr)
         }
     }()
@@ -162,6 +163,7 @@ func (srv *HopServer) forwardFrames() {
     pktHandle := map[byte](func(*udpPacket, *HopPacket)){
         HOP_FLG_PSH: srv.handleKnock,
         HOP_FLG_HSH: srv.handleHandshake,
+        HOP_FLG_HSH|HOP_FLG_ACK: srv.handleHandshakeAck,
         HOP_FLG_DAT: srv.handleDataPacket,
         HOP_FLG_FIN: srv.handleFinish,
     }
@@ -184,7 +186,7 @@ func (srv *HopServer) forwardFrames() {
         case packet := <-srv.fromNet:
 
             hPack, _ := unpackHopPacket(packet.data)
-            logger.Debug("New UDP Packet from: %v, noise len: %d", packet.addr, len(hPack.noise))
+            logger.Debug("New UDP Packet from: %v", packet.addr)
 
             if handle_func, ok := pktHandle[hPack.Flag]; ok {
                 handle_func(packet, hPack)
@@ -252,14 +254,48 @@ func (srv *HopServer) handleHandshake(u *udpPacket, hp *HopPacket) {
         logger.Debug("assign address %s, route key %d", cltIP, key)
         srv.peers[key] = hpeer
         hpeer.inited = true
-
+        hpeer.state = HOP_STAT_HANDSHAKE
         srv.toClient(hpeer, HOP_FLG_HSH | HOP_FLG_ACK, buf.Bytes(), true)
+        hpeer.hsDone = make(chan byte)
+        go func(){
+            for i := 0; i < 5; i++ {
+                select {
+                case <- hpeer.hsDone:
+                    hpeer.state = HOP_STAT_WORKING
+                    return
+                case <- time.After(2 * time.Second):
+                    logger.Debug("Client Handshake Timeout")
+                    srv.toClient(hpeer, HOP_FLG_HSH | HOP_FLG_ACK, buf.Bytes(), true)
+                }
+            }
+            // timeout,  kick
+            srv.toClient(hpeer, HOP_FLG_HSH | HOP_FLG_FIN, []byte{}, true)
+            srv.toClient(hpeer, HOP_FLG_HSH | HOP_FLG_FIN, []byte{}, true)
+            srv.toClient(hpeer, HOP_FLG_HSH | HOP_FLG_FIN, []byte{}, true)
+
+            srv.ippool.relase(hpeer.ip)
+            delete(srv.peers, sid)
+            delete(srv.peers, key)
+
+        }()
     }
+
+}
+
+func (srv *HopServer) handleHandshakeAck(u *udpPacket, hp *HopPacket) {
+    sid := uint64(binary.BigEndian.Uint32(hp.payload[:4]))
+    sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
+    hpeer, ok := srv.peers[sid]
+    if ! ok {
+        return
+    }
+    logger.Debug("Client Handshake Done")
+    hpeer.hsDone <- 1
 }
 
 func (srv *HopServer) handleDataPacket(u *udpPacket, hp *HopPacket) {
     ipPack := hp.payload
-
+    logger.Debug("New Data Packet")
     ipSrc := waterutil.IPv4Source(ipPack).To4()
     key := ip4_uint64(ipSrc)
     logger.Debug("IP Source: %v, key: %d, ip: %v", ipSrc, key, []byte(ipSrc))

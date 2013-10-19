@@ -59,6 +59,7 @@ type HopClient struct {
     toNet chan *HopPacket
 
 
+    handshakeDone chan byte
     finishAck chan byte
 }
 
@@ -80,6 +81,7 @@ func NewClient(cfg HopClientConfig) error {
     hopClient.fromNet = newHopPacketBuffer()
     hopClient.cfg = cfg
     hopClient.state = HOP_STAT_INIT
+    hopClient.handshakeDone = make(chan byte)
     hopClient.finishAck = make(chan byte)
 
     go hopClient.cleanUp()
@@ -88,20 +90,22 @@ func NewClient(cfg HopClientConfig) error {
     if err != nil {
         return err
     }
-
     hopClient.iface = iface
+
+    net_gateway, net_nic, err = getNetGateway()
+    logger.Debug("Net Gateway: %s %s", net_gateway, net_nic)
+    if err != nil {
+        return err
+    }
 
     for port := cfg.HopStart; port <= cfg.HopEnd; port++ {
         server := fmt.Sprintf("%s:%d", cfg.Server, port)
         go hopClient.handleUDP(server)
     }
 
-
-
-    net_gateway, net_nic, err = getNetGateway()
-    logger.Debug("Net Gateway: %s %s", net_gateway, net_nic)
-    if err != nil {
-        return err
+    res := <-hopClient.handshakeDone
+    if res == 0 {
+        return errors.New("Handshake Fail")
     }
 
     routeDone := make(chan bool)
@@ -275,28 +279,38 @@ func (clt *HopClient) finishSession() {
 
 // handle handeshake ack
 func (clt *HopClient) handleHandshakeAck(u *net.UDPConn, hp *HopPacket) {
-    _ip, _net, _mask := make([]byte, 4), make([]byte, 4), make([]byte, 4)
-    copy(_ip, hp.payload[:4])
-    copy(_net, hp.payload[:4])
-    copy(_mask, hp.payload[4:8])
-    logger.Debug("%v", hp.payload)
-    _net[3] = 0
+    if clt.state == HOP_STAT_HANDSHAKE {
+        _ip, _net, _mask := make([]byte, 4), make([]byte, 4), make([]byte, 4)
+        copy(_ip, hp.payload[:4])
+        copy(_net, hp.payload[:4])
+        copy(_mask, hp.payload[4:8])
+        logger.Debug("%v", hp.payload)
+        _net[3] = 0
 
-    ip := net.IP(_ip)
-    subnet := &net.IPNet{_net, _mask}
-    setTunIP(clt.iface, ip, subnet)
+        ip := net.IP(_ip)
+        subnet := &net.IPNet{_net, _mask}
+        setTunIP(clt.iface, ip, subnet)
 
-    res := atomic.CompareAndSwapInt32(&clt.state, HOP_STAT_HANDSHAKE, HOP_STAT_WORKING)
-    if !res {
-        logger.Error("Client state not expected: %d", clt.state)
+        res := atomic.CompareAndSwapInt32(&clt.state, HOP_STAT_HANDSHAKE, HOP_STAT_WORKING)
+        if !res {
+            logger.Error("Client state not expected: %d", clt.state)
+        }
+        logger.Info("Session Initialized")
+        clt.handshakeDone <- 1
     }
-    logger.Info("Session Initialized")
+
+    logger.Debug("Handshake Ack to Server")
+    hp = new(HopPacket)
+    hp.Flag = HOP_FLG_HSH | HOP_FLG_ACK
+    hp.setPayload(clt.sid[:])
+    hp.addNoise(mrand.Intn(MTU-64))  // TODO: re-calculate carefully
+    u.Write(hp.Pack())
 
 }
 
 // handle handshake fail
 func (clt *HopClient) handleHandshakeError(u *net.UDPConn, hp *HopPacket) {
-    logger.Error("Handshake Error")
+    clt.handshakeDone <- 0
 }
 
 

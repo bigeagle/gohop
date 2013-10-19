@@ -201,6 +201,12 @@ func redirectPort(from, to string) error {
     if err != nil {
         return err
     }
+    cmd = exec.Command("ip6tables", args...)
+    err = cmd.Run()
+
+    if err != nil {
+        return err
+    }
     return nil
 }
 
@@ -213,6 +219,12 @@ func unredirectPort(from, to string) error {
     args := strings.Split(sargs, " ")
     cmd := exec.Command("iptables", args...)
     err := cmd.Run()
+
+    if err != nil {
+        return err
+    }
+    cmd = exec.Command("ip6tables", args...)
+    err = cmd.Run()
 
     if err != nil {
         return err

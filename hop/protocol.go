@@ -117,6 +117,8 @@ type HopPeer struct {
     _addrs_lst []*hUDPAddr // i know it's ugly!
     inited     bool       // whether a connection is initialized
     seq        uint32
+    state      int32
+    hsDone     chan byte
 }
 
 func newHopPeer(id uint64, addr *net.UDPAddr) *HopPeer {
