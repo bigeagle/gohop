@@ -37,21 +37,7 @@ var invalidAddr = errors.New("Invalid device ip address")
 
 var tun_peer net.IP
 
-func newTun(name string, addr string) (iface *water.Interface, err error) {
-
-    ip, subnet, err := net.ParseCIDR(addr)
-    if err != nil {
-        return nil, invalidAddr
-    }
-    ip = ip.To4()
-    if ip[3]%2 == 0 {
-        return nil, invalidAddr
-    }
-
-    peer := net.IP(make([]byte, 4))
-    copy([]byte(peer), []byte(ip))
-    peer[3]++
-    tun_peer = peer
+func newTun(name string) (iface *water.Interface, err error) {
 
     iface, err = water.NewTUN(name)
     if err != nil {
@@ -68,13 +54,28 @@ func newTun(name string, addr string) (iface *water.Interface, err error) {
         return nil, err
     }
 
-    sargs = fmt.Sprintf("addr add dev %s local %s peer %s", iface.Name(), ip, peer)
-    args = strings.Split(sargs, " ")
-    cmd = exec.Command("ip", args...)
+    return iface, nil
+}
+
+func setTunIP(iface *water.Interface, ip net.IP, subnet *net.IPNet) (err error) {
+    ip = ip.To4()
+    logger.Debug("%v", ip)
+    if ip[3] % 2 == 0 {
+        return invalidAddr
+    }
+
+    peer := net.IP(make([]byte, 4))
+    copy([]byte(peer), []byte(ip))
+    peer[3]++
+    tun_peer = peer
+
+    sargs := fmt.Sprintf("addr add dev %s local %s peer %s", iface.Name(), ip, peer)
+    args := strings.Split(sargs, " ")
+    cmd := exec.Command("ip", args...)
     logger.Info("ip %s", sargs)
     err = cmd.Run()
     if err != nil {
-        return nil, err
+        return err
     }
 
     sargs = fmt.Sprintf("route add %s via %s dev %s", subnet, peer, iface.Name())
@@ -82,13 +83,10 @@ func newTun(name string, addr string) (iface *water.Interface, err error) {
     cmd = exec.Command("ip", args...)
     logger.Info("ip %s", sargs)
     err = cmd.Run()
-    if err != nil {
-        return nil, err
-    }
-
-    return iface, nil
+    return err
 }
 
+// return net gateway (default route) and nic
 func getNetGateway() (gw, dev string, err error) {
 
     file, err := os.Open("/proc/net/route")
@@ -144,6 +142,8 @@ func getNetGateway() (gw, dev string, err error) {
     return "", "", errors.New("No default gateway found")
 }
 
+
+// add route
 func addRoute(dest, nextHop, iface string) {
 
     scmd := fmt.Sprintf("ip -4 r a %s via %s dev %s", dest, nextHop, iface)
@@ -157,6 +157,7 @@ func addRoute(dest, nextHop, iface string) {
 
 }
 
+// delete route
 func delRoute(dest string) {
     sargs := fmt.Sprintf("-4 route del %s", dest)
     args := strings.Split(sargs, " ")
@@ -169,6 +170,7 @@ func delRoute(dest string) {
     }
 }
 
+// redirect default gateway
 func redirectGateway(iface, gw string) error {
     subnets := []string{"0.0.0.0/1", "128.0.0.0/1"}
     logger.Info("Redirecting Gateway")
@@ -186,6 +188,8 @@ func redirectGateway(iface, gw string) error {
     return nil
 }
 
+
+// redirect ports to one
 func redirectPort(from, to string) error {
     //iptables -t nat -A PREROUTING -p udp -m udp --dport 40000:41000 -j REDIRECT --to-ports 1234
     logger.Info("Port Redirecting")
@@ -200,6 +204,8 @@ func redirectPort(from, to string) error {
     return nil
 }
 
+
+// undo redirect ports
 func unredirectPort(from, to string) error {
     //iptables -t nat -D PREROUTING -p udp -m udp --dport 40000:41000 -j REDIRECT --to-ports 1234
     logger.Info("Clear Port Redirecting")

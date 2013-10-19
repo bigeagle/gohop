@@ -39,6 +39,14 @@ func ip4_uint32(ip net.IP) (i uint32) {
     return i
 }
 
+func ip4_uint64(ip net.IP) (i uint64) {
+    i = 0
+    for _, a := range ip {
+        i = (i << 8) + uint64(a)
+    }
+    return i
+}
+
 func randAddr(a []*hUDPAddr) *hUDPAddr {
     i := rand.Intn(len(a))
     return a[i]

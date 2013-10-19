@@ -21,6 +21,9 @@ package hop
 import (
     "github.com/bigeagle/water"
     "github.com/bigeagle/water/waterutil"
+    "encoding/binary"
+    "bytes"
+    "fmt"
     "net"
     "os"
     "os/signal"
@@ -40,8 +43,12 @@ type HopServer struct {
     cfg HopServerConfig
     // interface
     iface *water.Interface
+    // subnet
+    ipnet *net.IPNet
+    // IP Pool
+    ippool *hopIPPool
     // client peers, key is the mac address, value is a HopPeer record
-    peers map[uint32]*HopPeer
+    peers map[uint64]*HopPeer
 
     // channel to put in packets read from udpsocket
     fromNet chan *udpPacket
@@ -64,15 +71,23 @@ func NewServer(cfg HopServerConfig) error {
     hopServer := new(HopServer)
     hopServer.fromNet = make(chan *udpPacket, 32)
     hopServer.fromIface = make(chan []byte, 32)
-    hopServer.peers = make(map[uint32]*HopPeer)
+    hopServer.peers = make(map[uint64]*HopPeer)
     hopServer.cfg = cfg
     hopServer.toNet = make(chan *udpPacket, 32)
+    hopServer.ippool = new(hopIPPool)
 
-    iface, err := newTun("", cfg.Addr)
+    iface, err := newTun("")
     if err != nil {
         return err
     }
     hopServer.iface = iface
+    ip, subnet, err := net.ParseCIDR(cfg.Addr)
+    err = setTunIP(iface, ip, subnet)
+    if err != nil {
+        return err
+    }
+    hopServer.ipnet = &net.IPNet{ip, subnet.Mask}
+    hopServer.ippool.subnet = subnet
 
     // forward device frames to socket and socket packets to device
     go hopServer.forwardFrames()
@@ -142,57 +157,135 @@ func (srv *HopServer) listenAndServe(port string) {
 }
 
 func (srv *HopServer) forwardFrames() {
+
+    // packet map
+    pktHandle := map[byte](func(*udpPacket, *HopPacket)){
+        HOP_FLG_PSH: srv.handleKnock,
+        HOP_FLG_HSH: srv.handleHandshake,
+        HOP_FLG_DAT: srv.handleDataPacket,
+        HOP_FLG_FIN: srv.handleFinish,
+    }
+
     for {
         select {
         case pack := <-srv.fromIface:
             // logger.Debug("New iface Frame")
             // first byte is left for opcode
-            dest := waterutil.IPv4Destination(pack)
-            mkey := ip4_uint32(dest)
+            dest := waterutil.IPv4Destination(pack).To4()
+            mkey := ip4_uint64(dest)
 
             logger.Debug("ip dest: %v", dest)
             if hpeer, found := srv.peers[mkey]; found {
-                hp := new(HopPacket)
-                hp.Seq = hpeer.seq
-                hp.payload = pack
-                hpeer.seq += 1
-
-                if !hpeer.inited {
-                    hpeer.inited = true
-                    hp.Flag = HOP_FLG_ACK
-                }
-
-
-                // logger.Debug("Peer: %v", hpeer)
-                if addr, ok := hpeer.addr(); ok {
-                    upacket := &udpPacket{addr, hp.Pack()}
-                    srv.toNet <- upacket
-                }
+                srv.toClient(hpeer, HOP_FLG_DAT, pack, false)
+            } else {
+                logger.Debug("client peer with key %d not found", mkey)
             }
 
         case packet := <-srv.fromNet:
-            logger.Debug("New UDP Packet from: %v", packet.addr)
 
             hPack, _ := unpackHopPacket(packet.data)
-            // logger.Debug("%v", hPack)
-            ipPack := hPack.payload
+            logger.Debug("New UDP Packet from: %v, noise len: %d", packet.addr, len(hPack.noise))
 
-            ipSrc := waterutil.IPv4Source(ipPack)
-            logger.Debug("IP Source: %v, flag: %x", ipSrc, hPack.Flag)
-            key := ip4_uint32(ipSrc)
-
-            if hPack.Flag == HOP_FLG_PSH {
-                hp := newHopPeer(key, packet.addr)
-                srv.peers[key] = hp
+            if handle_func, ok := pktHandle[hPack.Flag]; ok {
+                handle_func(packet, hPack)
+            } else {
+                logger.Error("Unkown flag: %x", hPack.Flag)
             }
-
-            if peer, ok := srv.peers[key]; ok {
-                peer.insertAddr(packet.addr)
-            }
-            srv.iface.Write(ipPack)
         }
 
     }
+}
+
+func (srv *HopServer) toClient(peer *HopPeer, flag byte, payload []byte, noise bool) {
+    hp := new(HopPacket)
+    hp.Seq = peer.seq
+    hp.Flag = flag
+    hp.payload = payload
+    peer.seq += 1
+
+    // logger.Debug("Peer: %v", hpeer)
+    if addr, ok := peer.addr(); ok {
+        upacket := &udpPacket{addr, hp.Pack()}
+        srv.toNet <- upacket
+    }
+}
+
+func (srv *HopServer) handleKnock(u *udpPacket, hp *HopPacket) {
+    sid := uint64(binary.BigEndian.Uint32(hp.payload[:4]))
+    // logger.Debug("port knock from client %v, sid: %d", u.addr, sid)
+    sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
+
+    hpeer, ok := srv.peers[sid]
+    if ! ok {
+        hpeer = newHopPeer(sid, u.addr)
+        srv.peers[sid] = hpeer
+    } else {
+        hpeer.insertAddr(u.addr)
+    }
+
+}
+
+func (srv *HopServer) handleHandshake(u *udpPacket, hp *HopPacket) {
+    sid := uint64(binary.BigEndian.Uint32(hp.payload[:4]))
+    sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
+    logger.Debug("handshake from client %v, sid: %d", u.addr, sid)
+
+    hpeer, ok := srv.peers[sid]
+    if ! ok {
+        hpeer = newHopPeer(sid, u.addr)
+        srv.peers[sid] = hpeer
+    } else {
+        hpeer.insertAddr(u.addr)
+    }
+
+    cltIP, err := srv.ippool.next()
+    if err != nil {
+        msg := fmt.Sprintf("%s", err.Error())
+        srv.toClient(hpeer, HOP_FLG_HSH | HOP_FLG_FIN, []byte(msg), true)
+    } else {
+        hpeer.ip = cltIP.IP.To4()
+        buf := bytes.NewBuffer(make([]byte, 0, 8))
+        buf.Write([]byte(hpeer.ip))
+        buf.Write([]byte(cltIP.Mask))
+        key := ip4_uint64(hpeer.ip)
+
+        logger.Debug("assign address %s, route key %d", cltIP, key)
+        srv.peers[key] = hpeer
+        hpeer.inited = true
+
+        srv.toClient(hpeer, HOP_FLG_HSH | HOP_FLG_ACK, buf.Bytes(), true)
+    }
+}
+
+func (srv *HopServer) handleDataPacket(u *udpPacket, hp *HopPacket) {
+    ipPack := hp.payload
+
+    ipSrc := waterutil.IPv4Source(ipPack).To4()
+    key := ip4_uint64(ipSrc)
+    logger.Debug("IP Source: %v, key: %d, ip: %v", ipSrc, key, []byte(ipSrc))
+
+    if peer, ok := srv.peers[key]; ok {
+        peer.insertAddr(u.addr)
+    }
+
+    srv.iface.Write(ipPack)
+}
+
+func (srv *HopServer) handleFinish(u *udpPacket, hp *HopPacket) {
+    sid := uint64(binary.BigEndian.Uint32(hp.payload[:4]))
+    sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
+    logger.Debug("releasing client %v, sid: %d", u.addr, sid)
+
+    hpeer, ok := srv.peers[sid]
+    if ! ok {
+        return
+    }
+
+    key := ip4_uint64(hpeer.ip)
+    srv.ippool.relase(hpeer.ip)
+    delete(srv.peers, sid)
+    delete(srv.peers, key)
+    srv.toClient(hpeer, HOP_FLG_FIN | HOP_FLG_ACK, []byte{}, false)
 }
 
 func (srv *HopServer) cleanUp() {

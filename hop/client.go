@@ -26,7 +26,10 @@ import (
     "time"
     "fmt"
     "errors"
+    "crypto/rand"
+    mrand "math/rand"
     "github.com/bigeagle/water"
+    "sync/atomic"
 )
 
 var net_gateway, net_nic string
@@ -36,13 +39,27 @@ type route struct {
 }
 
 type HopClient struct {
+    // config
     cfg HopClientConfig
+    // interface
     iface  *water.Interface
+    // ip addr
+    ip net.IP
 
+    // session id
+    sid [4]byte
+    // session state
+    state int32
+
+    // net to interface
     toIface chan *HopPacket
-
+    // buffer for packets from net
     fromNet  *hopPacketBuffer
-    toNet chan []byte
+    // channel to send frames to net
+    toNet chan *HopPacket
+
+
+    finishAck chan byte
 }
 
 
@@ -57,23 +74,26 @@ func NewClient(cfg HopClientConfig) error {
 
 
     hopClient := new(HopClient)
+    rand.Read(hopClient.sid[:])
     hopClient.toIface = make(chan *HopPacket, 32)
-    hopClient.toNet = make(chan []byte, 32)
+    hopClient.toNet = make(chan *HopPacket, 32)
     hopClient.fromNet = newHopPacketBuffer()
     hopClient.cfg = cfg
+    hopClient.state = HOP_STAT_INIT
+    hopClient.finishAck = make(chan byte)
 
-    iface, err := newTun("", cfg.Addr)
+    go hopClient.cleanUp()
+
+    iface, err := newTun("")
     if err != nil {
         return err
     }
 
     hopClient.iface = iface
 
-    idx := 0
     for port := cfg.HopStart; port <= cfg.HopEnd; port++ {
         server := fmt.Sprintf("%s:%d", cfg.Server, port)
-        go hopClient.handleUDP(server, idx)
-        idx += 1
+        go hopClient.handleUDP(server)
     }
 
 
@@ -86,11 +106,12 @@ func NewClient(cfg HopClientConfig) error {
 
     routeDone := make(chan bool)
     go func() {
-        defer hopClient.cleanUp()
         for _, dest := range cfg.Net_gateway {
             addRoute(dest, net_gateway, net_nic)
         }
-        routeDone <- true
+        if cfg.Redirect_gateway {
+            routeDone <- true
+        }
     }()
 
     if cfg.Redirect_gateway {
@@ -142,17 +163,34 @@ func (clt *HopClient) handleInterface() {
         }
         frame := make([]byte, n)
         copy(frame, buf[0:n])
+        hp := new(HopPacket)
+        hp.payload = frame
 
         // frame -> fromIface -> toNet
-        clt.toNet <- frame
+        clt.toNet <- hp
     }
 }
 
-func (clt *HopClient) handleUDP(server string, idx int) {
+func (clt *HopClient) handleUDP(server string) {
     udpAddr, _ := net.ResolveUDPAddr("udp", server)
     udpConn, _ := net.DialUDP("udp", nil, udpAddr)
 
     logger.Debug(udpConn.RemoteAddr().String())
+
+    // packet map
+    pktHandle := map[byte](func(*net.UDPConn, *HopPacket)){
+        HOP_FLG_HSH | HOP_FLG_ACK: clt.handleHandshakeAck,
+        HOP_FLG_HSH | HOP_FLG_FIN: clt.handleHandshakeError,
+        HOP_FLG_DAT: clt.handleDataPacket,
+        HOP_FLG_FIN | HOP_FLG_ACK: clt.handleFinishAck,
+    }
+
+    clt.knock(udpConn)
+    go func() {
+        n := mrand.Intn(1000)
+        time.Sleep(time.Duration(n) * time.Millisecond)
+        clt.handeshake(udpConn)
+    }()
 
     // add route through net gateway
     if clt.cfg.Redirect_gateway {
@@ -165,22 +203,14 @@ func (clt *HopClient) handleUDP(server string, idx int) {
         }
     }
 
-    status := HOP_STAT_INIT
-
     // forward iface frames to network
     go func() {
         for {
-            frame := <-clt.toNet
+            hp := <-clt.toNet
             // logger.Debug("New iface frame")
             // dest := waterutil.IPv4Destination(frame)
             // logger.Debug("ip dest: %v", dest)
 
-            hp := new(HopPacket)
-            switch status {
-            case HOP_STAT_INIT:
-                hp.Flag = HOP_FLG_PSH
-            }
-            hp.payload = frame
             udpConn.Write(hp.Pack())
         }
     }()
@@ -197,26 +227,115 @@ func (clt *HopClient) handleUDP(server string, idx int) {
 
         hp, _ := unpackHopPacket(buf[:n])
 
-        if hp.Flag == HOP_FLG_ACK {
-            status = HOP_STAT_WORKING
-            logger.Info("Connection Initialized")
-        }
-
-        // logger.Debug("New HopPacket Seq: %d", packet.Seq)
-        if err := clt.fromNet.push(hp); err != nil {
-            logger.Debug("buffer full, flushing")
-            clt.fromNet.flushToChan(clt.toIface)
+        if handle_func, ok := pktHandle[hp.Flag]; ok {
+            handle_func(udpConn, hp)
+        } else {
+            logger.Error("Unkown flag: %x", hp.Flag)
         }
     }
 }
+
+
+// knock server port
+func (clt *HopClient) knock(u *net.UDPConn) {
+    hp := new(HopPacket)
+    hp.Flag = HOP_FLG_PSH
+    hp.setPayload(clt.sid[:])
+    hp.addNoise(mrand.Intn(MTU-64))  // TODO: re-calculate carefully
+
+    u.Write(hp.Pack())
+}
+
+// handshake with server
+func (clt *HopClient) handeshake(u *net.UDPConn) {
+    res := atomic.CompareAndSwapInt32(&clt.state, HOP_STAT_INIT, HOP_STAT_HANDSHAKE)
+    // logger.Debug("raced for handshake: %v", res)
+
+    if res {
+        logger.Info("start handeshaking")
+
+        hp := new(HopPacket)
+        hp.Flag = HOP_FLG_HSH
+        hp.setPayload(clt.sid[:])
+        hp.addNoise(mrand.Intn(MTU-64))  // TODO: re-calculate carefully
+        u.Write(hp.Pack())
+    }
+}
+
+// finish session
+func (clt *HopClient) finishSession() {
+    logger.Info("Finishing Session")
+    clt.state = HOP_STAT_FIN
+    hp := new(HopPacket)
+    hp.Flag = HOP_FLG_FIN
+    hp.setPayload(clt.sid[:])
+    clt.toNet <- hp
+}
+
+
+// handle handeshake ack
+func (clt *HopClient) handleHandshakeAck(u *net.UDPConn, hp *HopPacket) {
+    _ip, _net, _mask := make([]byte, 4), make([]byte, 4), make([]byte, 4)
+    copy(_ip, hp.payload[:4])
+    copy(_net, hp.payload[:4])
+    copy(_mask, hp.payload[4:8])
+    logger.Debug("%v", hp.payload)
+    _net[3] = 0
+
+    ip := net.IP(_ip)
+    subnet := &net.IPNet{_net, _mask}
+    setTunIP(clt.iface, ip, subnet)
+
+    res := atomic.CompareAndSwapInt32(&clt.state, HOP_STAT_HANDSHAKE, HOP_STAT_WORKING)
+    if !res {
+        logger.Error("Client state not expected: %d", clt.state)
+    }
+    logger.Info("Session Initialized")
+
+}
+
+// handle handshake fail
+func (clt *HopClient) handleHandshakeError(u *net.UDPConn, hp *HopPacket) {
+    logger.Error("Handshake Error")
+}
+
+
+// handle data packet
+func (clt *HopClient) handleDataPacket(u *net.UDPConn, hp *HopPacket) {
+    // logger.Debug("New HopPacket Seq: %d", packet.Seq)
+    if err := clt.fromNet.push(hp); err != nil {
+        logger.Debug("buffer full, flushing")
+        clt.fromNet.flushToChan(clt.toIface)
+    }
+}
+
+// handle finish ack
+func (clt *HopClient) handleFinishAck(u *net.UDPConn, hp *HopPacket) {
+    clt.finishAck <- byte(1)
+}
+
 
 func (clt *HopClient) cleanUp() {
     c := make(chan os.Signal, 1)
     signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
     <-c
+    logger.Info("Cleaning Up")
+
+    timeout := time.After(5 * time.Second)
+    if clt.state != HOP_STAT_INIT {
+        clt.finishSession()
+    }
 
     for _, dest := range clt.cfg.Net_gateway {
         delRoute(dest)
     }
+
+    select {
+    case <-clt.finishAck:
+        logger.Info("Finish Acknowledged")
+    case <-timeout:
+        logger.Info("Timeout, give up")
+    }
+
     os.Exit(0)
 }

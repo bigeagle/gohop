@@ -20,20 +20,28 @@ package main
 
 import (
     "flag"
-    //"fmt"
+    "fmt"
     "github.com/bigeagle/gohop/hop"
     "github.com/bigeagle/gohop/logging"
     "os"
 )
 
-var srvMode, cltMode, debug bool
+var srvMode, cltMode, debug, getVersion bool
 var cfgFile string
 
+var VERSION = "0.3dev"
 
 func main() {
+    flag.BoolVar(&getVersion, "version", false, "Get Version info")
     flag.BoolVar(&debug, "debug", false, "Provide debug info")
     flag.StringVar(&cfgFile, "config", "", "configfile")
     flag.Parse()
+
+    if getVersion {
+        fmt.Println("GoHop: Yet Another VPN to Escape from Censorship")
+        fmt.Printf("Version: %s\n", VERSION)
+        os.Exit(0)
+    }
 
     logging.InitLogger(debug)
     logger := logging.GetLogger()

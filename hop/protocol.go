@@ -24,6 +24,7 @@ import (
     "net"
     "bytes"
     "encoding/binary"
+    "crypto/rand"
 )
 
 const (
@@ -36,8 +37,9 @@ const (
     HOP_FLG_FIN byte = 0x40  // finish session
     HOP_FLG_MFR byte = 0x20  // more fragments
     HOP_FLG_ACK byte = 0x08  // acknowledge
+    HOP_FLG_DAT byte = 0x00  // acknowledge
 
-    HOP_STAT_INIT uint8 = iota  // initing
+    HOP_STAT_INIT int32 = iota  // initing
     HOP_STAT_HANDSHAKE          // handeshaking
     HOP_STAT_WORKING            // working
     HOP_STAT_FIN                // finishing
@@ -53,15 +55,27 @@ type hopPacketHeader struct {
 type HopPacket struct {
     hopPacketHeader
     payload  []byte
+    noise []byte
 }
 
 var cipher *hopCipher
 
 func (p *HopPacket) Pack() []byte {
-    buf := bytes.NewBuffer(make([]byte, 0, 8+len(p.payload)))
+    p.Dlen = uint16(len(p.payload))
+    buf := bytes.NewBuffer(make([]byte, 0, 8+len(p.payload)+len(p.noise)))
     binary.Write(buf, binary.BigEndian, p.hopPacketHeader)
     buf.Write(p.payload)
+    buf.Write(p.noise)
     return cipher.encrypt(buf.Bytes())
+}
+
+func (p *HopPacket) setPayload(d []byte) {
+    p.payload = d
+}
+
+func (p *HopPacket) addNoise(n int) {
+    p.noise = make([]byte, n)
+    rand.Read(p.noise)
 }
 
 func unpackHopPacket(b []byte) (*HopPacket, error) {
@@ -71,7 +85,8 @@ func unpackHopPacket(b []byte) (*HopPacket, error) {
 
     p := new(HopPacket)
     binary.Read(buf, binary.BigEndian, &p.hopPacketHeader)
-    p.payload = buf.Bytes()
+    p.payload = make([]byte, p.Dlen)
+    buf.Read(p.payload)
     return p, nil
 }
 
@@ -96,14 +111,15 @@ func newhUDPAddr(a *net.UDPAddr) *hUDPAddr {
 
 // gohop Peer is a record of a peer's available UDP addrs
 type HopPeer struct {
-    id         uint32
+    id         uint64
+    ip         net.IP
     addrs      map[[6]byte]int
     _addrs_lst []*hUDPAddr // i know it's ugly!
     inited     bool       // whether a connection is initialized
     seq        uint32
 }
 
-func newHopPeer(id uint32, addr *net.UDPAddr) *HopPeer {
+func newHopPeer(id uint64, addr *net.UDPAddr) *HopPeer {
     hp := new(HopPeer)
     hp.id = id
     hp._addrs_lst = make([]*hUDPAddr, 0)
