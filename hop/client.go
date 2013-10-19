@@ -61,6 +61,10 @@ type HopClient struct {
 
     handshakeDone chan byte
     finishAck chan byte
+    // state variable to ensure serverRoute added
+    srvRoute int32
+    // routes need to be clean in the end
+    routes []string
 }
 
 
@@ -83,6 +87,8 @@ func NewClient(cfg HopClientConfig) error {
     hopClient.state = HOP_STAT_INIT
     hopClient.handshakeDone = make(chan byte)
     hopClient.finishAck = make(chan byte)
+    hopClient.srvRoute = 0
+    hopClient.routes = make([]string, 0, 1024)
 
     go hopClient.cleanUp()
 
@@ -103,6 +109,8 @@ func NewClient(cfg HopClientConfig) error {
         go hopClient.handleUDP(server)
     }
 
+
+    // wait until handshake done
     res := <-hopClient.handshakeDone
     if res == 0 {
         return errors.New("Handshake Fail")
@@ -112,6 +120,7 @@ func NewClient(cfg HopClientConfig) error {
     go func() {
         for _, dest := range cfg.Net_gateway {
             addRoute(dest, net_gateway, net_nic)
+            hopClient.routes = append(hopClient.routes, dest)
         }
         if cfg.Redirect_gateway {
             routeDone <- true
@@ -198,11 +207,14 @@ func (clt *HopClient) handleUDP(server string) {
 
     // add route through net gateway
     if clt.cfg.Redirect_gateway {
-        if udpAddr, ok := udpConn.RemoteAddr().(*net.UDPAddr); ok {
-            srvIP := udpAddr.IP.To4()
-            if srvIP != nil {
-                srvDest := srvIP.String() + "/32"
-                addRoute(srvDest, net_gateway, net_nic)
+        if atomic.CompareAndSwapInt32(&clt.srvRoute, 0, 1) {
+            if udpAddr, ok := udpConn.RemoteAddr().(*net.UDPAddr); ok {
+                srvIP := udpAddr.IP.To4()
+                if srvIP != nil {
+                    srvDest := srvIP.String() + "/32"
+                    addRoute(srvDest, net_gateway, net_nic)
+                    clt.routes = append(clt.routes, srvDest)
+                }
             }
         }
     }
@@ -274,6 +286,8 @@ func (clt *HopClient) finishSession() {
     hp.Flag = HOP_FLG_FIN
     hp.setPayload(clt.sid[:])
     clt.toNet <- hp
+    clt.toNet <- hp
+    clt.toNet <- hp
 }
 
 
@@ -335,13 +349,14 @@ func (clt *HopClient) cleanUp() {
     <-c
     logger.Info("Cleaning Up")
 
+    if clt.cfg.Redirect_gateway {
+        delRoute("0.0.0.0/1")
+        delRoute("128.0.0.0/1")
+    }
+
     timeout := time.After(5 * time.Second)
     if clt.state != HOP_STAT_INIT {
         clt.finishSession()
-    }
-
-    for _, dest := range clt.cfg.Net_gateway {
-        delRoute(dest)
     }
 
     select {
@@ -349,6 +364,10 @@ func (clt *HopClient) cleanUp() {
         logger.Info("Finish Acknowledged")
     case <-timeout:
         logger.Info("Timeout, give up")
+    }
+
+    for _, dest := range clt.routes {
+        delRoute(dest)
     }
 
     os.Exit(0)
