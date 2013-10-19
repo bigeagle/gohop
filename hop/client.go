@@ -65,6 +65,8 @@ type HopClient struct {
     srvRoute int32
     // routes need to be clean in the end
     routes []string
+    // sequence number
+    seq uint32
 }
 
 
@@ -174,10 +176,12 @@ func (clt *HopClient) handleInterface() {
             logger.Error(err.Error())
             return
         }
-        frame := make([]byte, n)
-        copy(frame, buf[0:n])
+        // Hack to reduce memcopy
+        frame := make([]byte, n+HOP_HDR_LEN)
+        copy(frame[HOP_HDR_LEN:], buf[:n])
         hp := new(HopPacket)
-        hp.payload = frame
+        hp.payload = frame[HOP_HDR_LEN:]
+        hp.buf = frame
 
         // frame -> fromIface -> toNet
         clt.toNet <- hp
@@ -251,15 +255,24 @@ func (clt *HopClient) handleUDP(server string) {
     }
 }
 
+func (clt *HopClient) Seq() uint32 {
+    return atomic.AddUint32(&clt.seq, 1)
+}
+
+func (clt *HopClient) toServer(u *net.UDPConn, flag byte, payload []byte, noise bool) {
+    hp := new(HopPacket)
+    hp.Flag = flag
+    hp.Seq = clt.Seq()
+    hp.setPayload(payload)
+    if noise {
+        hp.addNoise(mrand.Intn(MTU-64-len(payload)))
+    }
+    u.Write(hp.Pack())
+}
 
 // knock server port
 func (clt *HopClient) knock(u *net.UDPConn) {
-    hp := new(HopPacket)
-    hp.Flag = HOP_FLG_PSH
-    hp.setPayload(clt.sid[:])
-    hp.addNoise(mrand.Intn(MTU-64))  // TODO: re-calculate carefully
-
-    u.Write(hp.Pack())
+    clt.toServer(u, HOP_FLG_PSH, clt.sid[:], true)
 }
 
 // handshake with server
@@ -269,12 +282,7 @@ func (clt *HopClient) handeshake(u *net.UDPConn) {
 
     if res {
         logger.Info("start handeshaking")
-
-        hp := new(HopPacket)
-        hp.Flag = HOP_FLG_HSH
-        hp.setPayload(clt.sid[:])
-        hp.addNoise(mrand.Intn(MTU-64))  // TODO: re-calculate carefully
-        u.Write(hp.Pack())
+        clt.toServer(u, HOP_FLG_HSH, clt.sid[:], true)
     }
 }
 
@@ -283,6 +291,7 @@ func (clt *HopClient) finishSession() {
     logger.Info("Finishing Session")
     clt.state = HOP_STAT_FIN
     hp := new(HopPacket)
+    hp.Seq = clt.Seq()
     hp.Flag = HOP_FLG_FIN
     hp.setPayload(clt.sid[:])
     clt.toNet <- hp
@@ -314,12 +323,7 @@ func (clt *HopClient) handleHandshakeAck(u *net.UDPConn, hp *HopPacket) {
     }
 
     logger.Debug("Handshake Ack to Server")
-    hp = new(HopPacket)
-    hp.Flag = HOP_FLG_HSH | HOP_FLG_ACK
-    hp.setPayload(clt.sid[:])
-    hp.addNoise(mrand.Intn(MTU-64))  // TODO: re-calculate carefully
-    u.Write(hp.Pack())
-
+    clt.toServer(u, HOP_FLG_HSH | HOP_FLG_ACK, clt.sid[:], true)
 }
 
 // handle handshake fail

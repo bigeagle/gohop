@@ -43,6 +43,8 @@ const (
     HOP_STAT_HANDSHAKE          // handeshaking
     HOP_STAT_WORKING            // working
     HOP_STAT_FIN                // finishing
+
+    HOP_HDR_LEN int = 8
 )
 
 type hopPacketHeader struct {
@@ -56,17 +58,26 @@ type HopPacket struct {
     hopPacketHeader
     payload  []byte
     noise []byte
+    buf []byte
 }
 
 var cipher *hopCipher
 
 func (p *HopPacket) Pack() []byte {
     p.Dlen = uint16(len(p.payload))
-    buf := bytes.NewBuffer(make([]byte, 0, 8+len(p.payload)+len(p.noise)))
-    binary.Write(buf, binary.BigEndian, p.hopPacketHeader)
-    buf.Write(p.payload)
-    buf.Write(p.noise)
-    return cipher.encrypt(buf.Bytes())
+    var buf *bytes.Buffer
+    if p.buf != nil {
+        // reduce memcopy
+        buf = bytes.NewBuffer(p.buf[:0])
+        binary.Write(buf, binary.BigEndian, p.hopPacketHeader)
+    } else {
+        buf = bytes.NewBuffer(make([]byte, 0, HOP_HDR_LEN+len(p.payload)+len(p.noise)))
+        binary.Write(buf, binary.BigEndian, p.hopPacketHeader)
+        buf.Write(p.payload)
+        buf.Write(p.noise)
+        p.buf = buf.Bytes()
+    }
+    return cipher.encrypt(p.buf)
 }
 
 func (p *HopPacket) setPayload(d []byte) {

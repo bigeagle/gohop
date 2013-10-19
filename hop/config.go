@@ -214,9 +214,10 @@ type HopClientConfig struct {
     HopStart int
     HopEnd int
     Key string
+    MTU string
+    Local bool
     Redirect_gateway bool
     Net_gateway []string
-
 }
 
 type HopConfig struct {
