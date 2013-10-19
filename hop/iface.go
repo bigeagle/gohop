@@ -185,3 +185,31 @@ func redirectGateway(iface, gw string) error {
     }
     return nil
 }
+
+func redirectPort(from, to string) error {
+    //iptables -t nat -A PREROUTING -p udp -m udp --dport 40000:41000 -j REDIRECT --to-ports 1234
+    logger.Info("Port Redirecting")
+    sargs := fmt.Sprintf("-t nat -A PREROUTING -p udp -m udp --dport %s -j REDIRECT --to-ports %s", from, to)
+    args := strings.Split(sargs, " ")
+    cmd := exec.Command("iptables", args...)
+    err := cmd.Run()
+
+    if err != nil {
+        return err
+    }
+    return nil
+}
+
+func unredirectPort(from, to string) error {
+    //iptables -t nat -D PREROUTING -p udp -m udp --dport 40000:41000 -j REDIRECT --to-ports 1234
+    logger.Info("Clear Port Redirecting")
+    sargs := fmt.Sprintf("-t nat -D PREROUTING -p udp -m udp --dport %s -j REDIRECT --to-ports %s", from, to)
+    args := strings.Split(sargs, " ")
+    cmd := exec.Command("iptables", args...)
+    err := cmd.Run()
+
+    if err != nil {
+        return err
+    }
+    return nil
+}

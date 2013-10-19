@@ -22,6 +22,9 @@ import (
     "github.com/bigeagle/water"
     "github.com/bigeagle/water/waterutil"
     "net"
+    "os"
+    "os/signal"
+    "syscall"
 )
 
 // a udpPacket
@@ -79,6 +82,8 @@ func NewServer(cfg HopServerConfig) error {
 
     logger.Debug("Recieving iface frames")
 
+
+    // handle interface
     buf := make([]byte, MTU)
     for {
         n, err := iface.Read(buf)
@@ -94,6 +99,7 @@ func NewServer(cfg HopServerConfig) error {
 }
 
 func (srv *HopServer) listenAndServe(port string) {
+    port = ":" + port
     udpAddr, err := net.ResolveUDPAddr("udp", port)
     if err != nil {
         logger.Error("Invalid port: %s", port)
@@ -111,6 +117,11 @@ func (srv *HopServer) listenAndServe(port string) {
             logger.Debug("client addr: %v", packet.addr)
             udpConn.WriteTo(packet.data, packet.addr)
         }
+    }()
+
+    go func() {
+        defer srv.cleanUp()
+        redirectPort(srv.cfg.HopRange, srv.cfg.Port)
     }()
 
     for {
@@ -182,4 +193,13 @@ func (srv *HopServer) forwardFrames() {
         }
 
     }
+}
+
+func (srv *HopServer) cleanUp() {
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+    <-c
+
+    unredirectPort(srv.cfg.HopRange, srv.cfg.Port)
+    os.Exit(0)
 }
