@@ -23,15 +23,14 @@ import (
     //"fmt"
     "github.com/bigeagle/gohop/hop"
     "github.com/bigeagle/gohop/logging"
+    "os"
 )
 
 var srvMode, cltMode, debug bool
 var cfgFile string
 
-func main() {
 
-    flag.BoolVar(&cltMode, "client", false, "Run in client mode")
-    flag.BoolVar(&srvMode, "server", false, "Run in server mode")
+func main() {
     flag.BoolVar(&debug, "debug", false, "Provide debug info")
     flag.StringVar(&cfgFile, "config", "", "configfile")
     flag.Parse()
@@ -39,9 +38,11 @@ func main() {
     logging.InitLogger(debug)
     logger := logging.GetLogger()
 
-    if srvMode == cltMode {
-        logger.Error("Invalid run mode")
-        return
+    checkerr := func(err error) {
+        if err != nil {
+            logger.Error(err.Error())
+            os.Exit(1)
+        }
     }
 
     if cfgFile == "" {
@@ -50,21 +51,18 @@ func main() {
 
     logger.Info("using config file: %v", cfgFile)
 
-    if srvMode {
-        err := hop.NewServer(cfgFile)
-        if err != nil {
-            logger.Error(err.Error())
-            return
-        }
+    icfg, err := hop.ParseHopConfig(cfgFile)
+    logger.Debug("%v", icfg)
+    checkerr(err)
 
-    }
-
-    if cltMode {
-        err := hop.NewClient(cfgFile)
-        if err != nil {
-            logger.Error(err.Error())
-            return
-        }
-
+    switch cfg := icfg.(type) {
+    case hop.HopServerConfig:
+        err := hop.NewServer(cfg)
+        checkerr(err)
+    case hop.HopClientConfig:
+        err := hop.NewClient(cfg)
+        checkerr(err)
+    default:
+        logger.Error("Invalid config file")
     }
 }

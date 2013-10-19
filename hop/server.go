@@ -19,22 +19,10 @@
 package hop
 
 import (
-    "encoding/json"
-    "errors"
     "github.com/bigeagle/water"
     "github.com/bigeagle/water/waterutil"
-    "io/ioutil"
     "net"
-    "os"
 )
-
-// config for hopserver
-type hopServerConfig struct {
-    ports []string
-    key   string
-    addr  string
-    // dev string
-}
 
 // a udpPacket
 type udpPacket struct {
@@ -42,13 +30,11 @@ type udpPacket struct {
     addr *net.UDPAddr
     // data
     data []byte
-    // channel index
-    channel int
 }
 
 type HopServer struct {
     // config
-    config *hopServerConfig
+    cfg HopServerConfig
     // interface
     iface *water.Interface
     // client peers, key is the mac address, value is a HopPeer record
@@ -56,91 +42,18 @@ type HopServer struct {
 
     // channel to put in packets read from udpsocket
     fromNet chan *udpPacket
-    // channels to put packets to send through udpsocket
-    toNet []chan *udpPacket
+    // channel to put packets to send through udpsocket
+    toNet chan *udpPacket
     // channel to put frames read from tun/tap device
     fromIface chan []byte
 }
 
-// read and parse config file
-func serverParseConfig(cfgFile string) (*hopServerConfig, error) {
 
-    file, err := os.Open(cfgFile)
-    if err != nil {
-        return nil, err
-    }
-    defer file.Close()
+func NewServer(cfg HopServerConfig) error {
+    var err error
+    logger.Debug("%v", cfg)
 
-    jsonBuf, err := ioutil.ReadAll(file)
-
-    // logger.Debug("%s", string(jsonBuf))
-
-    var icfg interface{}
-    err = json.Unmarshal(jsonBuf, &icfg)
-
-    if err != nil {
-        return nil, err
-    }
-
-    srvConfig := new(hopServerConfig)
-
-    cfg, ok := icfg.(map[string]interface{})
-
-    if ok {
-        // logger.Debug("%v", cfg)
-
-        if iports, found := cfg["ports"]; found {
-            srvConfig.ports = make([]string, 0)
-            switch ports := iports.(type) {
-            case string:
-                srvConfig.ports = append(srvConfig.ports, ports)
-            case []interface{}:
-                for _, v := range ports {
-                    if port, ok := v.(string); ok {
-                        srvConfig.ports = append(srvConfig.ports, port)
-                    } else {
-                        return nil, errors.New("Invalid port config")
-                    }
-                }
-            default:
-                return nil, errors.New("Invalid port config")
-            }
-        } else {
-            return nil, errors.New("Port not found")
-        }
-
-        if ikey, found := cfg["key"]; found {
-            if key, ok := ikey.(string); ok {
-                srvConfig.key = key
-            } else {
-                return nil, errors.New("Invalid Key config")
-            }
-        } else {
-            return nil, errors.New("Key not found")
-        }
-
-        if iaddr, found := cfg["addr"]; found {
-            if addr, ok := iaddr.(string); ok {
-                srvConfig.addr = addr
-            } else {
-                return nil, errors.New("Invalid Addr config")
-            }
-        } else {
-            return nil, errors.New("Addr config not found")
-        }
-
-    }
-
-    return srvConfig, nil
-}
-
-func NewServer(cfgFile string) error {
-    srvConfig, err := serverParseConfig(cfgFile)
-    if err != nil {
-        return err
-    }
-    logger.Debug("%v", srvConfig)
-    cipher, err = newHopCipher([]byte(srvConfig.key))
+    cipher, err = newHopCipher([]byte(cfg.Key))
     if err != nil {
         return err
     }
@@ -149,10 +62,10 @@ func NewServer(cfgFile string) error {
     hopServer.fromNet = make(chan *udpPacket, 32)
     hopServer.fromIface = make(chan []byte, 32)
     hopServer.peers = make(map[uint32]*HopPeer)
-    hopServer.config = srvConfig
-    hopServer.toNet = make([]chan *udpPacket, len(srvConfig.ports))
+    hopServer.cfg = cfg
+    hopServer.toNet = make(chan *udpPacket, 32)
 
-    iface, err := newTun("", srvConfig.addr)
+    iface, err := newTun("", cfg.Addr)
     if err != nil {
         return err
     }
@@ -162,9 +75,7 @@ func NewServer(cfgFile string) error {
     go hopServer.forwardFrames()
 
     // serve for multiple ports
-    for i, port := range srvConfig.ports {
-        go hopServer.listenAndServe(port, i)
-    }
+   go hopServer.listenAndServe(cfg.Port)
 
     logger.Debug("Recieving iface frames")
 
@@ -182,7 +93,7 @@ func NewServer(cfgFile string) error {
 
 }
 
-func (srv *HopServer) listenAndServe(port string, idx int) {
+func (srv *HopServer) listenAndServe(port string) {
     udpAddr, err := net.ResolveUDPAddr("udp", port)
     if err != nil {
         logger.Error("Invalid port: %s", port)
@@ -194,12 +105,9 @@ func (srv *HopServer) listenAndServe(port string, idx int) {
         return
     }
 
-    netOutput := make(chan *udpPacket, 32)
-    srv.toNet[idx] = netOutput
-
     go func() {
         for {
-            packet := <-netOutput
+            packet := <-srv.toNet
             logger.Debug("client addr: %v", packet.addr)
             udpConn.WriteTo(packet.data, packet.addr)
         }
@@ -208,7 +116,6 @@ func (srv *HopServer) listenAndServe(port string, idx int) {
     for {
         var plen int
         packet := new(udpPacket)
-        packet.channel = idx
         buf := make([]byte, IFACE_BUFSIZE)
         plen, packet.addr, err = udpConn.ReadFromUDP(buf)
 
@@ -246,9 +153,9 @@ func (srv *HopServer) forwardFrames() {
 
 
                 // logger.Debug("Peer: %v", hpeer)
-                if addr, idx, ok := hpeer.addr(); ok {
-                    upacket := &udpPacket{addr, hp.Pack(), idx}
-                    srv.toNet[idx] <- upacket
+                if addr, ok := hpeer.addr(); ok {
+                    upacket := &udpPacket{addr, hp.Pack()}
+                    srv.toNet <- upacket
                 }
             }
 
@@ -264,12 +171,12 @@ func (srv *HopServer) forwardFrames() {
             key := ip4_uint32(ipSrc)
 
             if hPack.Flag == HOP_FLG_PSH {
-                hp := newHopPeer(key, packet.addr, packet.channel)
+                hp := newHopPeer(key, packet.addr)
                 srv.peers[key] = hp
             }
 
             if peer, ok := srv.peers[key]; ok {
-                peer.insertAddr(packet.addr, packet.channel)
+                peer.insertAddr(packet.addr)
             }
             srv.iface.Write(ipPack)
         }

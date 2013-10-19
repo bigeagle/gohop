@@ -103,7 +103,7 @@ type HopPeer struct {
     seq        uint32
 }
 
-func newHopPeer(id uint32, addr *net.UDPAddr, idx int) *HopPeer {
+func newHopPeer(id uint32, addr *net.UDPAddr) *HopPeer {
     hp := new(HopPeer)
     hp.id = id
     hp._addrs_lst = make([]*hUDPAddr, 0)
@@ -113,22 +113,22 @@ func newHopPeer(id uint32, addr *net.UDPAddr, idx int) *HopPeer {
 
     a := newhUDPAddr(addr)
     hp._addrs_lst = append(hp._addrs_lst, a)
-    hp.addrs[a.hash] = idx
+    hp.addrs[a.hash] = 1
 
     return hp
 }
 
-func (h *HopPeer) addr() (*net.UDPAddr, int, bool) {
+func (h *HopPeer) addr() (*net.UDPAddr, bool) {
     addr := randAddr(h._addrs_lst)
-    idx, ok := h.addrs[addr.hash]
+    _, ok := h.addrs[addr.hash]
 
-    return addr.u, idx, ok
+    return addr.u, ok
 }
 
-func (h *HopPeer) insertAddr(addr *net.UDPAddr, idx int) {
+func (h *HopPeer) insertAddr(addr *net.UDPAddr) {
     a := newhUDPAddr(addr)
     if _, found := h.addrs[a.hash]; !found {
-        h.addrs[a.hash] = idx
+        h.addrs[a.hash] = 1
         h._addrs_lst = append(h._addrs_lst, a)
         //logger.Info("%v %d", addr, len(h._addrs_lst))
     }
