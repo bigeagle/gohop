@@ -206,6 +206,7 @@ type HopServerConfig struct {
     HopRange string
     Addr string
     Key string
+    MorphMethod string
 }
 
 // Client Config
@@ -216,6 +217,7 @@ type HopClientConfig struct {
     Key string
     MTU string
     Local bool
+    MorphMethod string
     Redirect_gateway bool
     Net_gateway []string
 }

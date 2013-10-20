@@ -91,6 +91,17 @@ func NewServer(cfg HopServerConfig) error {
     hopServer.ipnet = &net.IPNet{ip, subnet.Mask}
     hopServer.ippool.subnet = subnet
 
+    // traffic morpher
+    switch cfg.MorphMethod {
+    case "randsize":
+        m := newRandMorpher(MTU)
+        hopFrager = newHopFragmenter(m)
+        logger.Info("Using RandomSize Morpher")
+    default:
+        logger.Info("No Traffic Morphing")
+    }
+
+
     // forward device frames to socket and socket packets to device
     go hopServer.forwardFrames()
 
@@ -214,16 +225,29 @@ func (srv *HopServer) toClient(peer *HopPeer, flag byte, payload []byte, noise b
 }
 
 func (srv *HopServer) bufferToClient(peer *HopPeer, buf []byte) {
-    hp := new(HopPacket)
-    hp.Seq = peer.seq
-    hp.Flag = HOP_FLG_DAT
-    hp.buf = buf
-    hp.payload = buf[HOP_HDR_LEN:]
-    hp.Seq = peer.Seq()
+    if hopFrager == nil {
+        // if no traffic morphing
+        hp := new(HopPacket)
+        hp.Seq = peer.seq
+        hp.Flag = HOP_FLG_DAT
+        hp.buf = buf
+        hp.payload = buf[HOP_HDR_LEN:]
+        hp.Seq = peer.Seq()
 
-    if addr, ok := peer.addr(); ok {
-        upacket := &udpPacket{addr, hp.Pack()}
-        srv.toNet <- upacket
+        if addr, ok := peer.addr(); ok {
+            upacket := &udpPacket{addr, hp.Pack()}
+            srv.toNet <- upacket
+        }
+    } else {
+        // with traffic morphing
+        frame := buf[HOP_HDR_LEN:]
+        packets := hopFrager.bufFragmentate(peer, frame)
+        for _, hp := range(packets) {
+            if addr, ok := peer.addr(); ok {
+                upacket := &udpPacket{addr, hp.Pack()}
+                srv.toNet <- upacket
+            }
+        }
     }
 }
 

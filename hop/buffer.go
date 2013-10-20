@@ -26,10 +26,11 @@ import (
     "sync"
 )
 
-const hpBufSize = 16
+const hpBufSize = 64
 
 type hopPacketBuffer struct {
     buf [hpBufSize]*HopPacket
+    failAss []*HopPacket
     count int
     mutex sync.Mutex
 }
@@ -38,6 +39,7 @@ var bufFull = errors.New("Buffer Full")
 
 func newHopPacketBuffer() *hopPacketBuffer {
     hb := new(hopPacketBuffer)
+    hb.failAss = make([]*HopPacket, 0)
     hb.count = 0
     return hb
 }
@@ -72,10 +74,26 @@ func (hb *hopPacketBuffer) flushToChan(c chan *HopPacket) {
     defer hb.mutex.Unlock()
     hb.mutex.Lock()
     sort.Sort(hb)
-    for i := 0; i < hb.count; i++ {
-        c <- hb.buf[i]
+
+    if hopFrager != nil {
+        assembled, failures := hopFrager.assemble(hb.buf[:hb.count], hb.failAss)
+
+        for _, p := range(assembled) {
+            c <- p
+        }
+
+        hb.failAss = failures
+        for i, p := range(failures) {
+            hb.buf[i] = p
+        }
+        hb.count = len(failures)
+        // logger.Debug("failures: %d",  len(failures))
+    } else {
+        for i:=0; i<hb.count; i++ {
+            c <- hb.buf[i]
+        }
+        hb.count = 0
     }
-    hb.count = 0
 }
 
 

@@ -58,7 +58,6 @@ type HopClient struct {
     // channel to send frames to net
     toNet chan *HopPacket
 
-
     handshakeDone chan byte
     finishAck chan byte
     // state variable to ensure serverRoute added
@@ -91,6 +90,15 @@ func NewClient(cfg HopClientConfig) error {
     hopClient.finishAck = make(chan byte)
     hopClient.srvRoute = 0
     hopClient.routes = make([]string, 0, 1024)
+
+    switch cfg.MorphMethod {
+    case "randsize":
+        m := newRandMorpher(MTU)
+        hopFrager = newHopFragmenter(m)
+        logger.Info("Using RandomSize Morpher")
+    default:
+        logger.Info("No Traffic Morphing")
+    }
 
     go hopClient.cleanUp()
 
@@ -142,7 +150,7 @@ func NewClient(cfg HopClientConfig) error {
 
 
     go func() {
-        ticker := time.NewTicker(10 * time.Millisecond)
+        ticker := time.NewTicker(20 * time.Millisecond)
         for {
             <-ticker.C
             hopClient.fromNet.flushToChan(hopClient.toIface)
@@ -160,8 +168,8 @@ func (clt *HopClient) handleInterface() {
         for {
             hp := <-clt.toIface
             // logger.Debug("New Net packet to device")
-            n, err := clt.iface.Write(hp.payload)
-            logger.Debug("n: %d, len: %d", n, len(hp.payload))
+            _, err := clt.iface.Write(hp.payload)
+            // logger.Debug("n: %d, len: %d", n, len(hp.payload))
             if err != nil {
                 logger.Error(err.Error())
                 return
@@ -199,6 +207,7 @@ func (clt *HopClient) handleUDP(server string) {
         HOP_FLG_HSH | HOP_FLG_ACK: clt.handleHandshakeAck,
         HOP_FLG_HSH | HOP_FLG_FIN: clt.handleHandshakeError,
         HOP_FLG_DAT: clt.handleDataPacket,
+        HOP_FLG_DAT | HOP_FLG_MFR: clt.handleDataPacket,
         HOP_FLG_FIN | HOP_FLG_ACK: clt.handleFinishAck,
     }
 
