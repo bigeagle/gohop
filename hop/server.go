@@ -202,10 +202,9 @@ func (srv *HopServer) forwardFrames() {
 
 func (srv *HopServer) toClient(peer *HopPeer, flag byte, payload []byte, noise bool) {
     hp := new(HopPacket)
-    hp.Seq = peer.seq
+    hp.Seq = peer.Seq()
     hp.Flag = flag
     hp.payload = payload
-    peer.seq += 1
 
     // logger.Debug("Peer: %v", hpeer)
     if addr, ok := peer.addr(); ok {
@@ -220,7 +219,7 @@ func (srv *HopServer) bufferToClient(peer *HopPeer, buf []byte) {
     hp.Flag = HOP_FLG_DAT
     hp.buf = buf
     hp.payload = buf[HOP_HDR_LEN:]
-    peer.seq += 1
+    hp.Seq = peer.Seq()
 
     if addr, ok := peer.addr(); ok {
         upacket := &udpPacket{addr, hp.Pack()}

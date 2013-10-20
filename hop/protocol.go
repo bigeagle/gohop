@@ -25,6 +25,9 @@ import (
     "bytes"
     "encoding/binary"
     "crypto/rand"
+    "sync/atomic"
+    "fmt"
+    "strings"
 )
 
 const (
@@ -33,10 +36,10 @@ const (
     HOP_DAT uint8 = 0xDA
 
     HOP_FLG_PSH byte = 0x80  // port knocking and heartbeat
-    HOP_FLG_HSH byte = 0x60  // handshaking
-    HOP_FLG_FIN byte = 0x40  // finish session
-    HOP_FLG_MFR byte = 0x20  // more fragments
-    HOP_FLG_ACK byte = 0x08  // acknowledge
+    HOP_FLG_HSH byte = 0x40  // handshaking
+    HOP_FLG_FIN byte = 0x20  // finish session
+    HOP_FLG_MFR byte = 0x08  // more fragments
+    HOP_FLG_ACK byte = 0x04  // acknowledge
     HOP_FLG_DAT byte = 0x00  // acknowledge
 
     HOP_STAT_INIT int32 = iota  // initing
@@ -86,11 +89,45 @@ func (p *HopPacket) Size() int {
 
 func (p *HopPacket) setPayload(d []byte) {
     p.payload = d
+    p.Dlen = uint16(len(p.payload))
 }
 
 func (p *HopPacket) addNoise(n int) {
-    p.noise = make([]byte, n)
+    if p.buf != nil {
+        s := HOP_HDR_LEN+len(p.payload)
+        p.noise = p.buf[s:len(p.buf)]
+    } else {
+        p.noise = make([]byte, n)
+    }
     rand.Read(p.noise)
+}
+
+func (p *HopPacket) String() string {
+    flag := make([]string, 0, 8)
+    if (p.Flag ^ HOP_FLG_MFR == 0) || (p.Flag == 0) {
+        flag = append(flag, "DAT")
+    }
+    if p.Flag & HOP_FLG_PSH != 0 {
+        flag = append(flag, "PSH")
+    }
+    if p.Flag & HOP_FLG_HSH != 0 {
+        flag = append(flag, "HSH")
+    }
+    if p.Flag & HOP_FLG_FIN != 0 {
+        flag = append(flag, "FIN")
+    }
+    if p.Flag & HOP_FLG_ACK != 0 {
+        flag = append(flag, "ACK")
+    }
+    if p.Flag & HOP_FLG_MFR != 0 {
+        flag = append(flag, "MFR")
+    }
+
+    sflag := strings.Join(flag, " | ")
+    return fmt.Sprintf(
+        "{Flag: %s, Seq: %d, Frag: %d, Dlen: %d, Payload: %v, Noise: %v}",
+        sflag, p.Seq, p.Frag, p.Dlen, p.payload, p.noise,
+    )
 }
 
 func unpackHopPacket(b []byte) (*HopPacket, error) {
@@ -148,6 +185,10 @@ func newHopPeer(id uint64, addr *net.UDPAddr) *HopPeer {
     hp.addrs[a.hash] = 1
 
     return hp
+}
+
+func (h *HopPeer) Seq() uint32 {
+    return atomic.AddUint32(&h.seq, 1)
 }
 
 func (h *HopPeer) addr() (*net.UDPAddr, bool) {
