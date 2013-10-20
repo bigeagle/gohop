@@ -126,7 +126,6 @@ type HopPeer struct {
     ip         net.IP
     addrs      map[[6]byte]int
     _addrs_lst []*hUDPAddr // i know it's ugly!
-    inited     bool       // whether a connection is initialized
     seq        uint32
     state      int32
     hsDone     chan byte
@@ -137,7 +136,7 @@ func newHopPeer(id uint64, addr *net.UDPAddr) *HopPeer {
     hp.id = id
     hp._addrs_lst = make([]*hUDPAddr, 0)
     hp.addrs = make(map[[6]byte]int)
-    hp.inited = false
+    hp.state = HOP_STAT_INIT
     hp.seq = 0
 
     a := newhUDPAddr(addr)

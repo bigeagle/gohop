@@ -29,6 +29,7 @@ import (
     "os/signal"
     "syscall"
     "time"
+    "sync/atomic"
 )
 
 // a udpPacket
@@ -244,6 +245,7 @@ func (srv *HopServer) handleHandshake(u *udpPacket, hp *HopPacket) {
     if err != nil {
         msg := fmt.Sprintf("%s", err.Error())
         srv.toClient(hpeer, HOP_FLG_HSH | HOP_FLG_FIN, []byte(msg), true)
+        delete(srv.peers, sid)
     } else {
         hpeer.ip = cltIP.IP.To4()
         buf := bytes.NewBuffer(make([]byte, 0, 8))
@@ -253,8 +255,7 @@ func (srv *HopServer) handleHandshake(u *udpPacket, hp *HopPacket) {
 
         logger.Debug("assign address %s, route key %d", cltIP, key)
         srv.peers[key] = hpeer
-        hpeer.inited = true
-        hpeer.state = HOP_STAT_HANDSHAKE
+        atomic.StoreInt32(&hpeer.state, HOP_STAT_HANDSHAKE)
         srv.toClient(hpeer, HOP_FLG_HSH | HOP_FLG_ACK, buf.Bytes(), true)
         hpeer.hsDone = make(chan byte)
         go func(){
@@ -290,6 +291,7 @@ func (srv *HopServer) handleHandshakeAck(u *udpPacket, hp *HopPacket) {
         return
     }
     logger.Debug("Client Handshake Done")
+    atomic.StoreInt32(&hpeer.state, HOP_STAT_WORKING)
     hpeer.hsDone <- 1
 }
 

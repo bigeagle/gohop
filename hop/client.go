@@ -289,7 +289,7 @@ func (clt *HopClient) handeshake(u *net.UDPConn) {
 // finish session
 func (clt *HopClient) finishSession() {
     logger.Info("Finishing Session")
-    clt.state = HOP_STAT_FIN
+    atomic.StoreInt32(&clt.state, HOP_STAT_FIN)
     hp := new(HopPacket)
     hp.Seq = clt.Seq()
     hp.Flag = HOP_FLG_FIN
@@ -302,7 +302,7 @@ func (clt *HopClient) finishSession() {
 
 // handle handeshake ack
 func (clt *HopClient) handleHandshakeAck(u *net.UDPConn, hp *HopPacket) {
-    if clt.state == HOP_STAT_HANDSHAKE {
+    if atomic.LoadInt32(&clt.state) == HOP_STAT_HANDSHAKE {
         _ip, _net, _mask := make([]byte, 4), make([]byte, 4), make([]byte, 4)
         copy(_ip, hp.payload[:4])
         copy(_net, hp.payload[:4])
