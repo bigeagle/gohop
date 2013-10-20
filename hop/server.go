@@ -113,9 +113,9 @@ func NewServer(cfg HopServerConfig) error {
             return err
         }
 
-        frame := make([]byte, n)
-        copy(frame, buf[0:n])
-        hopServer.fromIface <- frame
+        hpbuf := make([]byte, n+HOP_HDR_LEN)
+        copy(hpbuf[HOP_HDR_LEN:], buf[:n])
+        hopServer.fromIface <- hpbuf
     }
 
 }
@@ -174,12 +174,13 @@ func (srv *HopServer) forwardFrames() {
         case pack := <-srv.fromIface:
             // logger.Debug("New iface Frame")
             // first byte is left for opcode
-            dest := waterutil.IPv4Destination(pack).To4()
+            frame := pack[HOP_HDR_LEN:]
+            dest := waterutil.IPv4Destination(frame).To4()
             mkey := ip4_uint64(dest)
 
             logger.Debug("ip dest: %v", dest)
             if hpeer, found := srv.peers[mkey]; found {
-                srv.toClient(hpeer, HOP_FLG_DAT, pack, false)
+                srv.bufferToClient(hpeer, pack)
             } else {
                 logger.Debug("client peer with key %d not found", mkey)
             }
@@ -207,6 +208,20 @@ func (srv *HopServer) toClient(peer *HopPeer, flag byte, payload []byte, noise b
     peer.seq += 1
 
     // logger.Debug("Peer: %v", hpeer)
+    if addr, ok := peer.addr(); ok {
+        upacket := &udpPacket{addr, hp.Pack()}
+        srv.toNet <- upacket
+    }
+}
+
+func (srv *HopServer) bufferToClient(peer *HopPeer, buf []byte) {
+    hp := new(HopPacket)
+    hp.Seq = peer.seq
+    hp.Flag = HOP_FLG_DAT
+    hp.buf = buf
+    hp.payload = buf[HOP_HDR_LEN:]
+    peer.seq += 1
+
     if addr, ok := peer.addr(); ok {
         upacket := &udpPacket{addr, hp.Pack()}
         srv.toNet <- upacket

@@ -71,13 +71,17 @@ func (p *HopPacket) Pack() []byte {
         buf = bytes.NewBuffer(p.buf[:0])
         binary.Write(buf, binary.BigEndian, p.hopPacketHeader)
     } else {
-        buf = bytes.NewBuffer(make([]byte, 0, HOP_HDR_LEN+len(p.payload)+len(p.noise)))
+        buf = bytes.NewBuffer(make([]byte, 0, p.Size()))
         binary.Write(buf, binary.BigEndian, p.hopPacketHeader)
         buf.Write(p.payload)
         buf.Write(p.noise)
         p.buf = buf.Bytes()
     }
     return cipher.encrypt(p.buf)
+}
+
+func (p *HopPacket) Size() int {
+    return HOP_HDR_LEN+len(p.payload)+len(p.noise)
 }
 
 func (p *HopPacket) setPayload(d []byte) {
