@@ -47,12 +47,14 @@ const (
     HOP_STAT_WORKING            // working
     HOP_STAT_FIN                // finishing
 
-    HOP_HDR_LEN int = 8
+    HOP_HDR_LEN int = 12
 )
 
 type hopPacketHeader struct {
     Flag byte
     Seq  uint32
+    Plen uint16
+    FragPrefix uint16
     Frag uint8
     Dlen uint16
 }
@@ -80,8 +82,8 @@ func (p hopPacketHeader) String() string {
 
     sflag := strings.Join(flag, " | ")
     return fmt.Sprintf(
-        "{Flag: %s, Seq: %d, Frag: %d, Dlen: %d}",
-        sflag, p.Seq, p.Frag, p.Dlen,
+        "{Flag: %s, Seq: %d, Plen: %d, Prefix: %d, Frag: %d, Dlen: %d}",
+        sflag, p.Seq, p.Plen, p.FragPrefix, p.Frag, p.Dlen,
     )
 }
 

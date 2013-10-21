@@ -228,7 +228,6 @@ func (srv *HopServer) bufferToClient(peer *HopPeer, buf []byte) {
     if hopFrager == nil {
         // if no traffic morphing
         hp := new(HopPacket)
-        hp.Seq = peer.seq
         hp.Flag = HOP_FLG_DAT
         hp.buf = buf
         hp.payload = buf[HOP_HDR_LEN:]
@@ -241,7 +240,7 @@ func (srv *HopServer) bufferToClient(peer *HopPeer, buf []byte) {
     } else {
         // with traffic morphing
         frame := buf[HOP_HDR_LEN:]
-        packets := hopFrager.bufFragmentate(peer, frame)
+        packets := hopFrager.Fragmentate(peer, frame)
         for _, hp := range(packets) {
             if addr, ok := peer.addr(); ok {
                 upacket := &udpPacket{addr, hp.Pack()}

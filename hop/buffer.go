@@ -30,7 +30,7 @@ const hpBufSize = 64
 
 type hopPacketBuffer struct {
     buf [hpBufSize]*HopPacket
-    failAss []*HopPacket
+    outQueue []*HopPacket
     count int
     mutex sync.Mutex
 }
@@ -39,7 +39,6 @@ var bufFull = errors.New("Buffer Full")
 
 func newHopPacketBuffer() *hopPacketBuffer {
     hb := new(hopPacketBuffer)
-    hb.failAss = make([]*HopPacket, 0)
     hb.count = 0
     return hb
 }
@@ -56,46 +55,32 @@ func (hb *hopPacketBuffer) push(p *HopPacket) error {
     }
 }
 
-func (hb *hopPacketBuffer) Len() int { return hb.count }
+func (hb *hopPacketBuffer) Len() int { return len(hb.outQueue) }
 
 func (hb *hopPacketBuffer) Less(i, j int) bool {
-    a, b := hb.buf[i], hb.buf[j]
-    if a.Seq == b.Seq {
-        return a.Frag < b.Frag
-    }
+    a, b := hb.outQueue[i], hb.outQueue[j]
     return a.Seq < b.Seq
 }
 
 func (hb *hopPacketBuffer) Swap(i, j int) {
-    hb.buf[i], hb.buf[j] = hb.buf[j], hb.buf[i]
+    hb.outQueue[i], hb.outQueue[j] = hb.outQueue[j], hb.outQueue[i]
 }
 
 func (hb *hopPacketBuffer) flushToChan(c chan *HopPacket) {
     defer hb.mutex.Unlock()
     hb.mutex.Lock()
-    sort.Sort(hb)
 
     if hopFrager != nil {
-        assembled, failures := hopFrager.assemble(hb.buf[:hb.count], hb.failAss)
-
-        for _, p := range(assembled) {
-            c <- p
-        }
-
-        hb.failAss = failures
-        for i, p := range(failures) {
-            hb.buf[i] = p
-        }
-        hb.count = len(failures)
-        if hb.count > 0 {
-            logger.Debug("failures: %d",  len(failures))
-        }
+        hb.outQueue = hopFrager.reAssemble(hb.buf[:hb.count])
     } else {
-        for i:=0; i<hb.count; i++ {
-            c <- hb.buf[i]
-        }
-        hb.count = 0
+        hb.outQueue = hb.buf[:hb.count]
     }
+
+    sort.Sort(hb)
+    for _, p := range(hb.outQueue) {
+        c <- p
+    }
+    hb.count = 0
 }
 
 

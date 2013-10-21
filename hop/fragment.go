@@ -2,7 +2,8 @@ package hop
 // Handle HopPacket's fragmentation
 
 import (
-    "bytes"
+    "time"
+    "sync"
 )
 
 const (
@@ -19,24 +20,75 @@ type hopSequencer interface {
     Seq() uint32
 }
 
+type hopFragCacheRecord struct {
+    ts int64
+    p *HopPacket
+}
+
+type hopFragCache struct {
+    cache map[uint32]*hopFragCacheRecord
+    flushPeriod time.Time
+    lock sync.RWMutex
+}
+
+func newHopFragCache(fp time.Duration) *hopFragCache {
+    c := new(hopFragCache)
+    c.cache = make(map[uint32]*hopFragCacheRecord)
+    go func(){
+        ticker := time.NewTicker(fp)
+        for {
+            <-ticker.C
+            c.checkExpired()
+        }
+    }()
+    return c
+}
+
+func (c *hopFragCache) checkExpired() {
+    removeKey := func(k uint32) {
+        c.lock.Lock()
+        defer c.lock.Unlock()
+        delete(c.cache, k)
+    }
+    nowts := time.Now().Unix()
+    for k, v := range(c.cache) {
+        if nowts - v.ts > 60 {
+            removeKey(k)
+        }
+    }
+}
+
+func (c *hopFragCache) insert(k uint32, p *hopFragCacheRecord) {
+    c.lock.Lock()
+    c.cache[k] = p
+    c.lock.Unlock()
+}
+
+func (c *hopFragCache) get(k uint32) (*hopFragCacheRecord, bool) {
+    c.lock.RLock()
+    v, found := c.cache[k]
+    c.lock.RUnlock()
+    return v, found
+}
 
 type HopFragmenter struct {
     morpher HopMorpher
+    cache *hopFragCache
 }
 
 func newHopFragmenter(m HopMorpher) *HopFragmenter {
     hf := new(HopFragmenter)
     hf.morpher = m
+    hf.cache = newHopFragCache(30*time.Second)
     return hf
 }
 
-func (hf *HopFragmenter) bufFragmentate(c hopSequencer, frame []byte) []*HopPacket {
+func (hf *HopFragmenter) Fragmentate(c hopSequencer, frame []byte) []*HopPacket {
     seq := c.Seq()
     frameSize := len(frame)
     packets := make([]*HopPacket, 0, MAX_FRAGS)
-    prefixes := make([]int, 0, MAX_FRAGS+1)
-    bufSize := 0
-
+    prefixes := make([]int, 0, MAX_FRAGS)
+    prefix := 0
     padding := 0
 
     for i, restSize := 0, frameSize; i<MAX_FRAGS; i++ {
@@ -45,132 +97,94 @@ func (hf *HopFragmenter) bufFragmentate(c hopSequencer, frame []byte) []*HopPack
 
         delta := restSize - fragSize
 
-        prefixes = append(prefixes, bufSize - i*HOP_HDR_LEN)
-
         if delta < FRG_THRES {
             if delta < -FRG_THRES {
-                padding = (-delta) - HOP_HDR_LEN
-                //logger.Debug("padding: %d", padding)
-                bufSize += (fragSize + HOP_HDR_LEN)
-            } else {
-                bufSize += (restSize + HOP_HDR_LEN)
+                padding = -delta
             }
+            prefix += restSize
+            prefixes = append(prefixes, prefix)
             break
         } else {
             if i == MAX_FRAGS - 1 {
-                bufSize += (restSize + HOP_HDR_LEN)
+                prefix += restSize
             } else {
-                bufSize += (fragSize + HOP_HDR_LEN)
+                prefix += fragSize
                 restSize -= fragSize
             }
         }
+
+        prefixes = append(prefixes, prefix)
     }
-    prefixes = append(prefixes, frameSize)
 
-    buf := make([]byte, bufSize)
-
-    for i := 0; i < len(prefixes) - 1; i++ {
-        p, q := prefixes[i], prefixes[i+1]
-        bs := p + (i+1)*HOP_HDR_LEN
-        be := bs + (q-p)
-        //logger.Debug("frame range: %d, %d", p, q)
-
-        copy(buf[bs:be], frame[p:q])
-
+    start := 0
+    for i, q := range(prefixes) {
         hp := new(HopPacket)
         hp.Seq = seq
         hp.Flag = HOP_FLG_DAT | HOP_FLG_MFR
         hp.Frag = uint8(i)
-        hp.buf = buf[bs-HOP_HDR_LEN:be]
-        hp.setPayload(buf[bs:be])
+        hp.Plen = uint16(frameSize)
+        hp.FragPrefix = uint16(start)
+        hp.setPayload(frame[start:q])
         packets = append(packets, hp)
+        start = q
     }
 
+    logger.Debug("%d, %d", len(prefixes), len(packets))
     last := len(packets)-1
     packets[last].Flag ^= HOP_FLG_MFR
     if padding > 0 {
-        bs := prefixes[last] + last * HOP_HDR_LEN
-        packets[last].buf = buf[bs:len(buf)]
-
         packets[last].addNoise(padding)
     }
 
     return packets
+
 }
 
 
-// reassemble packets in a buffer, buffer must be sorted
-// packets in `prevFailures` *must* be included in `packets`
-// if previous failed packet failed again, it would be ignored
-func (hf *HopFragmenter) assemble(packets []*HopPacket, prevFailures []*HopPacket) (rpacks []*HopPacket, failures []*HopPacket) {
-    mergePackets := func(packs []*HopPacket) *HopPacket {
-        dLen := uint16(0)
-        flag := HOP_FLG_DAT
-        for _, p := range(packs) {
-            logger.Debug("frag: %v", p.hopPacketHeader)
-            dLen += p.Dlen
-            flag ^= ((p.Flag & HOP_FLG_MFR) ^ HOP_FLG_MFR)
-        }
-        buf := bytes.NewBuffer(make([]byte, 0, dLen))
-        for _, p := range(packs) {
-            buf.Write(p.payload)
+func (hf *HopFragmenter) reAssemble(packets []*HopPacket) []*HopPacket {
+    rpacks := make([]*HopPacket, 0, len(packets))
+    now := time.Now().Unix()
+
+    hf.cache.lock.Lock()
+    defer hf.cache.lock.Unlock()
+
+    for _, p := range(packets) {
+        logger.Debug("frag: %v", p.hopPacketHeader)
+        if p.Dlen == p.Plen {
+            logger.Debug("rpacket: %v", p.hopPacketHeader)
+            rpacks = append(rpacks, p)
+            continue
         }
 
-        rp := new(HopPacket)
-        rp.Flag = flag ^ HOP_FLG_MFR
-        rp.Seq = packs[0].Seq
-        rp.Frag = uint8(len(packs))
-        rp.Dlen = dLen
-        rp.payload = buf.Bytes()
-        logger.Debug("rpacket: %v", rp.hopPacketHeader)
-        return rp
-    }
-
-    n := len(packets)
-
-    if n < 2 {
-        return packets, prevFailures
-    }
-
-    rpacks = make([]*HopPacket, 0, n)
-    failures = make([]*HopPacket, 0, n)
-    grpStart := 0
-    prev := packets[0]
-
-    for i, cur := range(packets[1:]) {
-        if prev.Seq < cur.Seq {
-            // logger.Debug("prev: %d, cur: %d", prev.Seq, cur.Seq)
-            // merge previours packs
-            s, e := grpStart, i+1
-            rp := mergePackets(packets[s:e])
-            if rp.Flag & HOP_FLG_MFR != 0 {
-                for _, f := range(prevFailures) {
-                    if rp.Seq == f.Seq {
-                        goto nextloop
-                    }
-                }
-                failures = append(failures, rp)
-            } else {
+        if r, found := hf.cache.cache[p.Seq]; found {
+            rp := r.p
+            // logger.Debug("plen: %d, recved: %d", rp.Plen, rp.Dlen)
+            rp.Dlen += p.Dlen
+            s := p.FragPrefix
+            e := s + p.Dlen
+            rp.Flag ^= ((p.Flag & HOP_FLG_MFR) ^ HOP_FLG_MFR)
+            copy(rp.payload[s:e], p.payload)
+            if rp.Dlen == rp.Plen {
+                rp.Flag ^= HOP_FLG_MFR
+                logger.Debug("rpacket: %v", rp.hopPacketHeader)
                 rpacks = append(rpacks, rp)
+                delete(hf.cache.cache, p.Seq)
             }
-            nextloop:
-            grpStart = i + 1
+
+
+        } else {
+            payload := make([]byte, p.Plen)
+            s := p.FragPrefix
+            e := s + p.Dlen
+            p.Flag = HOP_FLG_DAT ^ ((p.Flag & HOP_FLG_MFR) ^ HOP_FLG_MFR)
+            p.Frag = uint8(0xFF)
+            copy(payload[s:e], p.payload)
+            p.payload = payload
+            record := &hopFragCacheRecord{ts: now, p: p}
+            hf.cache.cache[p.Seq] = record
         }
-        prev = cur
     }
 
-    rp := mergePackets(packets[grpStart:])
-    if rp.Flag & HOP_FLG_MFR != 0 {
-        for _, f := range(prevFailures) {
-            if rp.Seq == f.Seq {
-                goto _ret
-            }
-        }
-        failures = append(failures, rp)
-    } else {
-        rpacks = append(rpacks, rp)
-    }
+    return rpacks
 
-    _ret:
-    return rpacks, failures
 }
