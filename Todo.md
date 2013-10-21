@@ -1,6 +1,6 @@
 # Todos
 
-[ ] packet fragmentation
-[ ] heartbeat
-[ ] noise packets
-[ ] dynamic key
+* [X] packet fragmentation
+* [ ] heartbeat
+* [ ] noise packets
+* [ ] dynamic key
