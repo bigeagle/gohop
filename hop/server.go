@@ -206,7 +206,7 @@ func (srv *HopServer) forwardFrames() {
             dest := waterutil.IPv4Destination(frame).To4()
             mkey := ip4_uint64(dest)
 
-            logger.Debug("ip dest: %v", dest)
+            // logger.Debug("ip dest: %v", dest)
             if hpeer, found := srv.peers[mkey]; found {
                 srv.bufferToClient(hpeer, pack)
             } else {
@@ -216,7 +216,7 @@ func (srv *HopServer) forwardFrames() {
         case packet := <-srv.fromNet:
 
             hPack, _ := unpackHopPacket(packet.data)
-            logger.Debug("New UDP Packet from: %v", packet.addr)
+            // logger.Debug("New UDP Packet from: %v", packet.addr)
 
             if handle_func, ok := pktHandle[hPack.Flag]; ok {
                 handle_func(packet, hPack)
@@ -345,6 +345,7 @@ func (srv *HopServer) handleHandshakeAck(u *udpPacket, hp *HopPacket) {
         return
     }
     logger.Debug("Client Handshake Done")
+    logger.Info("Client %d Connected", sid)
     atomic.StoreInt32(&hpeer.state, HOP_STAT_WORKING)
     hpeer.hsDone <- 1
 }
@@ -366,7 +367,7 @@ func (srv *HopServer) handleDataPacket(u *udpPacket, hp *HopPacket) {
 func (srv *HopServer) handleFinish(u *udpPacket, hp *HopPacket) {
     sid := uint64(binary.BigEndian.Uint32(hp.payload[:4]))
     sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
-    logger.Debug("releasing client %v, sid: %d", u.addr, sid)
+    logger.Info("releasing client %v, sid: %d", u.addr, sid)
 
     hpeer, ok := srv.peers[sid]
     if ! ok {

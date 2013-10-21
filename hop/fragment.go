@@ -87,6 +87,23 @@ func (hf *HopFragmenter) Fragmentate(c hopSequencer, frame []byte) []*HopPacket 
     seq := c.Seq()
     frameSize := len(frame)
     packets := make([]*HopPacket, 0, MAX_FRAGS)
+
+    // Debug start
+    /*
+    hp := new(HopPacket)
+    hp.Seq = seq
+    hp.Flag = HOP_FLG_DAT
+    hp.Frag = uint8(0)
+    hp.Plen = uint16(frameSize)
+    hp.FragPrefix = uint16(0)
+    hp.setPayload(frame)
+    logger.Debug("seq: %d, plen: %d, dlen: %d", seq, hp.Plen, hp.Dlen)
+    packets = append(packets, hp)
+    return packets
+    */
+    // Debug end
+
+
     prefixes := make([]int, 0, MAX_FRAGS)
     prefix := 0
     padding := 0
@@ -129,7 +146,7 @@ func (hf *HopFragmenter) Fragmentate(c hopSequencer, frame []byte) []*HopPacket 
         start = q
     }
 
-    // logger.Debug("%d, %d", len(prefixes), len(packets))
+    //logger.Debug("packSize: %d, fragSize: %v", frameSize, prefixes)
     last := len(packets)-1
     packets[last].Flag ^= HOP_FLG_MFR
     if padding > 0 {

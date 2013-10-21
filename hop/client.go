@@ -185,11 +185,11 @@ func (clt *HopClient) handleInterface() {
             return
         }
 
+        buf := make([]byte, n+HOP_HDR_LEN)
+        copy(buf[HOP_HDR_LEN:], frame[:n])
         if hopFrager == nil {
             // if no traffic morphing
             // Hack to reduce memcopy
-            buf := make([]byte, n+HOP_HDR_LEN)
-            copy(buf[HOP_HDR_LEN:], frame[:n])
             hp := new(HopPacket)
             hp.payload = buf[HOP_HDR_LEN:]
             hp.buf = buf
@@ -198,7 +198,7 @@ func (clt *HopClient) handleInterface() {
 
         } else {
             // with traffic morphing
-            packets := hopFrager.Fragmentate(clt, frame)
+            packets := hopFrager.Fragmentate(clt, buf[HOP_HDR_LEN:])
             for _, hp := range(packets) {
                 clt.toNet <- hp
             }
@@ -260,7 +260,7 @@ func (clt *HopClient) handleUDP(server string) {
 
     for {
         n, err := udpConn.Read(buf)
-        logger.Debug("New UDP Packet, len: %d", n)
+        // logger.Debug("New UDP Packet, len: %d", n)
         if err != nil {
             logger.Error(err.Error())
             return
