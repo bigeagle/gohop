@@ -150,7 +150,7 @@ func NewClient(cfg HopClientConfig) error {
 
 
     go func() {
-        ticker := time.NewTicker(20 * time.Millisecond)
+        ticker := time.NewTicker(10 * time.Millisecond)
         for {
             <-ticker.C
             hopClient.fromNet.flushToChan(hopClient.toIface)
@@ -248,7 +248,7 @@ func (clt *HopClient) handleUDP(server string) {
 
     for {
         n, err := udpConn.Read(buf)
-        logger.Debug("New UDP Packet, len: %d", n)
+        // logger.Debug("New UDP Packet, len: %d", n)
         if err != nil {
             logger.Error(err.Error())
             return

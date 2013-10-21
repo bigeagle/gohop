@@ -87,7 +87,9 @@ func (hb *hopPacketBuffer) flushToChan(c chan *HopPacket) {
             hb.buf[i] = p
         }
         hb.count = len(failures)
-        // logger.Debug("failures: %d",  len(failures))
+        if hb.count > 0 {
+            logger.Debug("failures: %d",  len(failures))
+        }
     } else {
         for i:=0; i<hb.count; i++ {
             c <- hb.buf[i]

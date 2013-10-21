@@ -57,6 +57,34 @@ type hopPacketHeader struct {
     Dlen uint16
 }
 
+func (p hopPacketHeader) String() string {
+    flag := make([]string, 0, 8)
+    if (p.Flag ^ HOP_FLG_MFR == 0) || (p.Flag == 0) {
+        flag = append(flag, "DAT")
+    }
+    if p.Flag & HOP_FLG_PSH != 0 {
+        flag = append(flag, "PSH")
+    }
+    if p.Flag & HOP_FLG_HSH != 0 {
+        flag = append(flag, "HSH")
+    }
+    if p.Flag & HOP_FLG_FIN != 0 {
+        flag = append(flag, "FIN")
+    }
+    if p.Flag & HOP_FLG_ACK != 0 {
+        flag = append(flag, "ACK")
+    }
+    if p.Flag & HOP_FLG_MFR != 0 {
+        flag = append(flag, "MFR")
+    }
+
+    sflag := strings.Join(flag, " | ")
+    return fmt.Sprintf(
+        "{Flag: %s, Seq: %d, Frag: %d, Dlen: %d}",
+        sflag, p.Seq, p.Frag, p.Dlen,
+    )
+}
+
 type HopPacket struct {
     hopPacketHeader
     payload  []byte
@@ -103,30 +131,9 @@ func (p *HopPacket) addNoise(n int) {
 }
 
 func (p *HopPacket) String() string {
-    flag := make([]string, 0, 8)
-    if (p.Flag ^ HOP_FLG_MFR == 0) || (p.Flag == 0) {
-        flag = append(flag, "DAT")
-    }
-    if p.Flag & HOP_FLG_PSH != 0 {
-        flag = append(flag, "PSH")
-    }
-    if p.Flag & HOP_FLG_HSH != 0 {
-        flag = append(flag, "HSH")
-    }
-    if p.Flag & HOP_FLG_FIN != 0 {
-        flag = append(flag, "FIN")
-    }
-    if p.Flag & HOP_FLG_ACK != 0 {
-        flag = append(flag, "ACK")
-    }
-    if p.Flag & HOP_FLG_MFR != 0 {
-        flag = append(flag, "MFR")
-    }
-
-    sflag := strings.Join(flag, " | ")
     return fmt.Sprintf(
-        "{Flag: %s, Seq: %d, Frag: %d, Dlen: %d, Payload: %v, Noise: %v}",
-        sflag, p.Seq, p.Frag, p.Dlen, p.payload, p.noise,
+        "{%v, Payload: %v, Noise: %v}",
+        p.hopPacketHeader, p.payload, p.noise,
     )
 }
 

@@ -107,6 +107,7 @@ func (hf *HopFragmenter) assemble(packets []*HopPacket, prevFailures []*HopPacke
         dLen := uint16(0)
         flag := HOP_FLG_DAT
         for _, p := range(packs) {
+            logger.Debug("frag: %v", p.hopPacketHeader)
             dLen += p.Dlen
             flag ^= ((p.Flag & HOP_FLG_MFR) ^ HOP_FLG_MFR)
         }
@@ -121,6 +122,7 @@ func (hf *HopFragmenter) assemble(packets []*HopPacket, prevFailures []*HopPacke
         rp.Frag = uint8(len(packs))
         rp.Dlen = dLen
         rp.payload = buf.Bytes()
+        logger.Debug("rpacket: %v", rp.hopPacketHeader)
         return rp
     }
 
