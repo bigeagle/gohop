@@ -25,6 +25,6 @@ import (
 var logger = logging.GetLogger()
 
 const (
-    MTU = 1450
+    MTU = 1400
     IFACE_BUFSIZE = 1500
 )

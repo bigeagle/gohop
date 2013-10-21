@@ -26,7 +26,7 @@ import (
     "sync"
 )
 
-const hpBufSize = 64
+const hpBufSize = 32
 
 type hopPacketBuffer struct {
     buf [hpBufSize]*HopPacket

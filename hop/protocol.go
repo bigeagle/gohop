@@ -206,7 +206,7 @@ func newHopPeer(id uint64, srv *HopServer, addr *net.UDPAddr) *HopPeer {
     hp.addrs[a.hash] = 1
 
     go func() {
-        ticker := time.NewTicker(10 * time.Millisecond)
+        ticker := time.NewTicker(20 * time.Millisecond)
         for {
             <-ticker.C
             hp.recvBuffer.flushToChan(hp.srv.toIface)

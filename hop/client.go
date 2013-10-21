@@ -150,7 +150,7 @@ func NewClient(cfg HopClientConfig) error {
 
 
     go func() {
-        ticker := time.NewTicker(10 * time.Millisecond)
+        ticker := time.NewTicker(20 * time.Millisecond)
         for {
             <-ticker.C
             hopClient.fromNet.flushToChan(hopClient.toIface)
