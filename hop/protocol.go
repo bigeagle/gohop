@@ -28,6 +28,7 @@ import (
     "sync/atomic"
     "fmt"
     "strings"
+    "time"
 )
 
 const (
@@ -47,7 +48,7 @@ const (
     HOP_STAT_WORKING            // working
     HOP_STAT_FIN                // finishing
 
-    HOP_HDR_LEN int = 12
+    HOP_HDR_LEN int = 16
 )
 
 type hopPacketHeader struct {
@@ -56,6 +57,7 @@ type hopPacketHeader struct {
     Plen uint16
     FragPrefix uint16
     Frag uint8
+    Sid  uint32
     Dlen uint16
 }
 
@@ -132,6 +134,10 @@ func (p *HopPacket) addNoise(n int) {
     rand.Read(p.noise)
 }
 
+func (p *HopPacket) setSid(sid [4]byte) {
+    p.Sid = binary.BigEndian.Uint32(sid[:])
+}
+
 func (p *HopPacket) String() string {
     return fmt.Sprintf(
         "{%v, Payload: %v, Noise: %v}",
@@ -179,19 +185,33 @@ type HopPeer struct {
     seq        uint32
     state      int32
     hsDone     chan byte
+    recvBuffer  *hopPacketBuffer
+    srv        *HopServer
 }
 
-func newHopPeer(id uint64, addr *net.UDPAddr) *HopPeer {
+func newHopPeer(id uint64, srv *HopServer, addr *net.UDPAddr) *HopPeer {
     hp := new(HopPeer)
     hp.id = id
     hp._addrs_lst = make([]*hUDPAddr, 0)
     hp.addrs = make(map[[6]byte]int)
     hp.state = HOP_STAT_INIT
     hp.seq = 0
+    hp.recvBuffer = newHopPacketBuffer()
+    hp.srv = srv
+    // logger.Debug("%v, %v", hp.recvBuffer, hp.srv)
+
 
     a := newhUDPAddr(addr)
     hp._addrs_lst = append(hp._addrs_lst, a)
     hp.addrs[a.hash] = 1
+
+    go func() {
+        ticker := time.NewTicker(10 * time.Millisecond)
+        for {
+            <-ticker.C
+            hp.recvBuffer.flushToChan(hp.srv.toIface)
+        }
+    }()
 
     return hp
 }

@@ -177,22 +177,33 @@ func (clt *HopClient) handleInterface() {
         }
     }()
 
-    buf := make([]byte, MTU)
+    frame := make([]byte, MTU)
     for {
-        n, err := clt.iface.Read(buf)
+        n, err := clt.iface.Read(frame)
         if err != nil {
             logger.Error(err.Error())
             return
         }
-        // Hack to reduce memcopy
-        frame := make([]byte, n+HOP_HDR_LEN)
-        copy(frame[HOP_HDR_LEN:], buf[:n])
-        hp := new(HopPacket)
-        hp.payload = frame[HOP_HDR_LEN:]
-        hp.buf = frame
 
-        // frame -> fromIface -> toNet
-        clt.toNet <- hp
+        if hopFrager == nil {
+            // if no traffic morphing
+            // Hack to reduce memcopy
+            buf := make([]byte, n+HOP_HDR_LEN)
+            copy(buf[HOP_HDR_LEN:], frame[:n])
+            hp := new(HopPacket)
+            hp.payload = buf[HOP_HDR_LEN:]
+            hp.buf = buf
+            hp.Seq = clt.Seq()
+            clt.toNet <- hp
+
+        } else {
+            // with traffic morphing
+            packets := hopFrager.Fragmentate(clt, frame)
+            for _, hp := range(packets) {
+                clt.toNet <- hp
+            }
+        }
+
     }
 }
 
@@ -236,6 +247,7 @@ func (clt *HopClient) handleUDP(server string) {
     go func() {
         for {
             hp := <-clt.toNet
+            hp.setSid(clt.sid)
             // logger.Debug("New iface frame")
             // dest := waterutil.IPv4Destination(frame)
             // logger.Debug("ip dest: %v", dest)
@@ -300,9 +312,9 @@ func (clt *HopClient) finishSession() {
     logger.Info("Finishing Session")
     atomic.StoreInt32(&clt.state, HOP_STAT_FIN)
     hp := new(HopPacket)
-    hp.Seq = clt.Seq()
     hp.Flag = HOP_FLG_FIN
     hp.setPayload(clt.sid[:])
+    hp.Seq = clt.Seq()
     clt.toNet <- hp
     clt.toNet <- hp
     clt.toNet <- hp
