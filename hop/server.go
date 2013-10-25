@@ -215,13 +215,17 @@ func (srv *HopServer) forwardFrames() {
 
         case packet := <-srv.fromNet:
 
-            hPack, _ := unpackHopPacket(packet.data)
-            // logger.Debug("New UDP Packet from: %v", packet.addr)
+            hPack, err := unpackHopPacket(packet.data)
+            if err == nil {
+                // logger.Debug("New UDP Packet from: %v", packet.addr)
 
-            if handle_func, ok := pktHandle[hPack.Flag]; ok {
-                handle_func(packet, hPack)
+                if handle_func, ok := pktHandle[hPack.Flag]; ok {
+                    handle_func(packet, hPack)
+                } else {
+                    logger.Error("Unkown flag: %x", hPack.Flag)
+                }
             } else {
-                logger.Error("Unkown flag: %x", hPack.Flag)
+                logger.Error(err.Error())
             }
         }
 

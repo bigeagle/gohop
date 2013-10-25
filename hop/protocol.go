@@ -26,6 +26,7 @@ import (
     "encoding/binary"
     "crypto/rand"
     "sync/atomic"
+    "errors"
     "fmt"
     "strings"
     "time"
@@ -148,13 +149,18 @@ func (p *HopPacket) String() string {
 func unpackHopPacket(b []byte) (*HopPacket, error) {
     iv := b[:cipherBlockSize]
     ctext := b[cipherBlockSize:]
-    buf := bytes.NewBuffer(cipher.decrypt(iv, ctext))
+    if frame := cipher.decrypt(iv, ctext); frame != nil {
+        buf := bytes.NewBuffer(frame)
 
-    p := new(HopPacket)
-    binary.Read(buf, binary.BigEndian, &p.hopPacketHeader)
-    p.payload = make([]byte, p.Dlen)
-    buf.Read(p.payload)
-    return p, nil
+        p := new(HopPacket)
+        binary.Read(buf, binary.BigEndian, &p.hopPacketHeader)
+        p.payload = make([]byte, p.Dlen)
+        buf.Read(p.payload)
+        return p, nil
+    } else {
+        return nil, errors.New("Decrypt Packet Error")
+    }
+
 }
 
 
