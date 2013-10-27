@@ -25,11 +25,12 @@ import (
     "bytes"
     "fmt"
     "net"
-    "os"
-    "os/signal"
-    "syscall"
+//     "os"
+//     "os/signal"
+//     "syscall"
     "time"
     "sync/atomic"
+    "sync"
 )
 
 // a udpPacket
@@ -38,6 +39,8 @@ type udpPacket struct {
     addr *net.UDPAddr
     // data
     data []byte
+    // channel
+    channel int
 }
 
 type HopServer struct {
@@ -55,10 +58,11 @@ type HopServer struct {
     // channel to put in packets read from udpsocket
     fromNet chan *udpPacket
     // channel to put packets to send through udpsocket
-    toNet chan *udpPacket
+    toNet []chan *udpPacket
     // channel to put frames read from tun/tap device
     fromIface chan []byte
     toIface chan *HopPacket
+    _lock sync.RWMutex
 }
 
 
@@ -77,7 +81,7 @@ func NewServer(cfg HopServerConfig) error {
     hopServer.toIface = make(chan *HopPacket, 32)
     hopServer.peers = make(map[uint64]*HopPeer)
     hopServer.cfg = cfg
-    hopServer.toNet = make(chan *udpPacket, 32)
+    hopServer.toNet = make([]chan *udpPacket, (cfg.HopEnd-cfg.HopStart+1))
     hopServer.ippool = new(hopIPPool)
 
     iface, err := newTun("")
@@ -107,13 +111,16 @@ func NewServer(cfg HopServerConfig) error {
     // forward device frames to socket and socket packets to device
     go hopServer.forwardFrames()
 
-    go func() {
-        defer hopServer.cleanUp()
-        redirectPort(cfg.HopRange, cfg.Port)
-    }()
+    // go func() {
+    //     defer hopServer.cleanUp()
+    //     redirectPort(cfg.HopRange, cfg.Port)
+    // }()
 
     // serve for multiple ports
-   go hopServer.listenAndServe(cfg.Port)
+    for idx, port := 0, cfg.HopStart; port <= cfg.HopEnd; port++ {
+        go hopServer.listenAndServe(fmt.Sprintf("%d", port), idx)
+        idx++
+    }
 
     logger.Debug("Recieving iface frames")
 
@@ -147,7 +154,7 @@ func NewServer(cfg HopServerConfig) error {
 
 }
 
-func (srv *HopServer) listenAndServe(port string) {
+func (srv *HopServer) listenAndServe(port string, idx int) {
     port = ":" + port
     udpAddr, err := net.ResolveUDPAddr("udp", port)
     if err != nil {
@@ -160,9 +167,18 @@ func (srv *HopServer) listenAndServe(port string) {
         return
     }
 
+    toNet := make(chan *udpPacket, 32)
+
+    go func() {
+        defer srv._lock.Unlock()
+        srv._lock.Lock()
+        srv.toNet[idx] = toNet
+        // logger.Debug("Listening on port %s", port)
+    }()
+
     go func() {
         for {
-            packet := <-srv.toNet
+            packet := <-toNet
             // logger.Debug("client addr: %v", packet.addr)
             udpConn.WriteTo(packet.data, packet.addr)
         }
@@ -171,8 +187,11 @@ func (srv *HopServer) listenAndServe(port string) {
     for {
         var plen int
         packet := new(udpPacket)
+        packet.channel = idx
         buf := make([]byte, IFACE_BUFSIZE)
+        // logger.Debug("Recieving packet %s", port)
         plen, packet.addr, err = udpConn.ReadFromUDP(buf)
+        // logger.Debug("New UDP Packet from: %v", packet.addr)
 
         packet.data = buf[:plen]
         if err != nil {
@@ -239,9 +258,9 @@ func (srv *HopServer) toClient(peer *HopPeer, flag byte, payload []byte, noise b
     hp.payload = payload
 
     // logger.Debug("Peer: %v", hpeer)
-    if addr, ok := peer.addr(); ok {
-        upacket := &udpPacket{addr, hp.Pack()}
-        srv.toNet <- upacket
+    if addr, idx, ok := peer.addr(); ok {
+        upacket := &udpPacket{addr, hp.Pack(), idx}
+        srv.toNet[idx] <- upacket
     }
 }
 
@@ -254,18 +273,18 @@ func (srv *HopServer) bufferToClient(peer *HopPeer, buf []byte) {
         hp.payload = buf[HOP_HDR_LEN:]
         hp.Seq = peer.Seq()
 
-        if addr, ok := peer.addr(); ok {
-            upacket := &udpPacket{addr, hp.Pack()}
-            srv.toNet <- upacket
+        if addr, idx, ok := peer.addr(); ok {
+            upacket := &udpPacket{addr, hp.Pack(), idx}
+            srv.toNet[idx] <- upacket
         }
     } else {
         // with traffic morphing
         frame := buf[HOP_HDR_LEN:]
         packets := hopFrager.Fragmentate(peer, frame)
         for _, hp := range(packets) {
-            if addr, ok := peer.addr(); ok {
-                upacket := &udpPacket{addr, hp.Pack()}
-                srv.toNet <- upacket
+            if addr, idx, ok := peer.addr(); ok {
+                upacket := &udpPacket{addr, hp.Pack(), idx}
+                srv.toNet[idx] <- upacket
             }
         }
     }
@@ -281,7 +300,7 @@ func (srv *HopServer) handleKnock(u *udpPacket, hp *HopPacket) {
         hpeer = newHopPeer(sid, srv, u.addr)
         srv.peers[sid] = hpeer
     } else {
-        hpeer.insertAddr(u.addr)
+        hpeer.insertAddr(u.addr, u.channel)
     }
 
 }
@@ -296,7 +315,7 @@ func (srv *HopServer) handleHandshake(u *udpPacket, hp *HopPacket) {
         hpeer = newHopPeer(sid, srv, u.addr)
         srv.peers[sid] = hpeer
     } else {
-        hpeer.insertAddr(u.addr)
+        hpeer.insertAddr(u.addr, u.channel)
     }
 
     cltIP, err := srv.ippool.next()
@@ -359,7 +378,7 @@ func (srv *HopServer) handleDataPacket(u *udpPacket, hp *HopPacket) {
     sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
 
     if peer, ok := srv.peers[sid]; ok {
-        peer.insertAddr(u.addr)
+        peer.insertAddr(u.addr, u.channel)
 
         if err := peer.recvBuffer.push(hp); err != nil {
             logger.Debug("buffer full, flushing")
@@ -385,11 +404,11 @@ func (srv *HopServer) handleFinish(u *udpPacket, hp *HopPacket) {
     srv.toClient(hpeer, HOP_FLG_FIN | HOP_FLG_ACK, []byte{}, false)
 }
 
-func (srv *HopServer) cleanUp() {
-    c := make(chan os.Signal, 1)
-    signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
-    <-c
-
-    unredirectPort(srv.cfg.HopRange, srv.cfg.Port)
-    os.Exit(0)
-}
+// func (srv *HopServer) cleanUp() {
+//     c := make(chan os.Signal, 1)
+//     signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+//     <-c
+//
+//     unredirectPort(srv.cfg.HopRange, srv.cfg.Port)
+//     os.Exit(0)
+// }

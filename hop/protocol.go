@@ -226,17 +226,17 @@ func (h *HopPeer) Seq() uint32 {
     return atomic.AddUint32(&h.seq, 1)
 }
 
-func (h *HopPeer) addr() (*net.UDPAddr, bool) {
+func (h *HopPeer) addr() (*net.UDPAddr, int, bool) {
     addr := randAddr(h._addrs_lst)
-    _, ok := h.addrs[addr.hash]
+    idx, ok := h.addrs[addr.hash]
 
-    return addr.u, ok
+    return addr.u, idx, ok
 }
 
-func (h *HopPeer) insertAddr(addr *net.UDPAddr) {
+func (h *HopPeer) insertAddr(addr *net.UDPAddr, idx int) {
     a := newhUDPAddr(addr)
     if _, found := h.addrs[a.hash]; !found {
-        h.addrs[a.hash] = 1
+        h.addrs[a.hash] = idx
         h._addrs_lst = append(h._addrs_lst, a)
         //logger.Info("%v %d", addr, len(h._addrs_lst))
     }

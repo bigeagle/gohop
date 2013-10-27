@@ -202,8 +202,8 @@ func serverParseConfig(cfgFile string) (*hopServerConfig, error) {
 
 // Server Config
 type HopServerConfig struct {
-    Port string
-    HopRange string
+    HopStart int
+    HopEnd int
     Addr string
     Key string
     MorphMethod string
