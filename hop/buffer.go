@@ -26,7 +26,7 @@ import (
     "sync"
 )
 
-const hpBufSize = 32
+const hpBufSize = 256
 
 type hopPacketBuffer struct {
     buf [hpBufSize]*HopPacket
@@ -82,8 +82,3 @@ func (hb *hopPacketBuffer) flushToChan(c chan *HopPacket) {
     }
     hb.count = 0
 }
-
-
-
-
-

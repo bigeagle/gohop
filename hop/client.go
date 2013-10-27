@@ -54,7 +54,7 @@ type HopClient struct {
     // net to interface
     toIface chan *HopPacket
     // buffer for packets from net
-    fromNet  *hopPacketBuffer
+    recvBuf  *hopPacketBuffer
     // channel to send frames to net
     toNet chan *HopPacket
 
@@ -83,7 +83,7 @@ func NewClient(cfg HopClientConfig) error {
     rand.Read(hopClient.sid[:])
     hopClient.toIface = make(chan *HopPacket, 32)
     hopClient.toNet = make(chan *HopPacket, 32)
-    hopClient.fromNet = newHopPacketBuffer()
+    hopClient.recvBuf = newHopPacketBuffer()
     hopClient.cfg = cfg
     hopClient.state = HOP_STAT_INIT
     hopClient.handshakeDone = make(chan byte)
@@ -153,7 +153,7 @@ func NewClient(cfg HopClientConfig) error {
         ticker := time.NewTicker(20 * time.Millisecond)
         for {
             <-ticker.C
-            hopClient.fromNet.flushToChan(hopClient.toIface)
+            hopClient.recvBuf.flushToChan(hopClient.toIface)
         }
     }()
 
@@ -256,8 +256,8 @@ func (clt *HopClient) handleUDP(server string) {
         }
     }()
 
-    buf := make([]byte, IFACE_BUFSIZE)
 
+    buf := make([]byte, IFACE_BUFSIZE)
     for {
         n, err := udpConn.Read(buf)
         // logger.Debug("New UDP Packet, len: %d", n)
@@ -266,8 +266,10 @@ func (clt *HopClient) handleUDP(server string) {
             return
         }
 
-        hp, _ := unpackHopPacket(buf[:n])
-
+        hp, err := unpackHopPacket(buf[:n])
+        if err != nil {
+            continue
+        }
         if handle_func, ok := pktHandle[hp.Flag]; ok {
             handle_func(udpConn, hp)
         } else {
@@ -356,9 +358,9 @@ func (clt *HopClient) handleHandshakeError(u *net.UDPConn, hp *HopPacket) {
 // handle data packet
 func (clt *HopClient) handleDataPacket(u *net.UDPConn, hp *HopPacket) {
     // logger.Debug("New HopPacket Seq: %d", packet.Seq)
-    if err := clt.fromNet.push(hp); err != nil {
+    if err := clt.recvBuf.push(hp); err != nil {
         logger.Debug("buffer full, flushing")
-        clt.fromNet.flushToChan(clt.toIface)
+        clt.recvBuf.flushToChan(clt.toIface)
     }
 }
 

@@ -195,7 +195,7 @@ type HopPeer struct {
     srv        *HopServer
 }
 
-func newHopPeer(id uint64, srv *HopServer, addr *net.UDPAddr) *HopPeer {
+func newHopPeer(id uint64, srv *HopServer, addr *net.UDPAddr, idx int) *HopPeer {
     hp := new(HopPeer)
     hp.id = id
     hp._addrs_lst = make([]*hUDPAddr, 0)
@@ -209,10 +209,10 @@ func newHopPeer(id uint64, srv *HopServer, addr *net.UDPAddr) *HopPeer {
 
     a := newhUDPAddr(addr)
     hp._addrs_lst = append(hp._addrs_lst, a)
-    hp.addrs[a.hash] = 1
+    hp.addrs[a.hash] = idx
 
     go func() {
-        ticker := time.NewTicker(20 * time.Millisecond)
+        ticker := time.NewTicker(10 * time.Millisecond)
         for {
             <-ticker.C
             hp.recvBuffer.flushToChan(hp.srv.toIface)

@@ -179,6 +179,7 @@ func (srv *HopServer) listenAndServe(port string, idx int) {
     go func() {
         for {
             packet := <-toNet
+            logger.Debug("index: %d, port: %s", idx, port)
             // logger.Debug("client addr: %v", packet.addr)
             udpConn.WriteTo(packet.data, packet.addr)
         }
@@ -297,7 +298,7 @@ func (srv *HopServer) handleKnock(u *udpPacket, hp *HopPacket) {
 
     hpeer, ok := srv.peers[sid]
     if ! ok {
-        hpeer = newHopPeer(sid, srv, u.addr)
+        hpeer = newHopPeer(sid, srv, u.addr, u.channel)
         srv.peers[sid] = hpeer
     } else {
         hpeer.insertAddr(u.addr, u.channel)
@@ -312,7 +313,7 @@ func (srv *HopServer) handleHandshake(u *udpPacket, hp *HopPacket) {
 
     hpeer, ok := srv.peers[sid]
     if ! ok {
-        hpeer = newHopPeer(sid, srv, u.addr)
+        hpeer = newHopPeer(sid, srv, u.addr, u.channel)
         srv.peers[sid] = hpeer
     } else {
         hpeer.insertAddr(u.addr, u.channel)
