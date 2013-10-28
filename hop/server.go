@@ -381,11 +381,7 @@ func (srv *HopServer) handleDataPacket(u *udpPacket, hp *HopPacket) {
     if peer, ok := srv.peers[sid]; ok {
         // logger.Debug("n peer addrs: %v", len(peer._addrs_lst))
         // peer.insertAddr(u.addr, u.channel)
-
-        if err := peer.recvBuffer.push(hp); err != nil {
-            logger.Debug("buffer full, flushing")
-            peer.recvBuffer.flushToChan(srv.toIface)
-        }
+        peer.recvBuffer.Push(hp)
     }
 }
 

@@ -28,7 +28,7 @@ import (
 )
 
 const (
-    hpBufSize = 256
+    hpBufSize = 384
     bufferTimeout = 20 * time.Millisecond
 )
 
@@ -37,42 +37,41 @@ type hopPacketBuffer struct {
     outQueue []*HopPacket
     count int
     timer *time.Timer
+    timeout time.Duration
+    flushChan chan *HopPacket
     mutex sync.Mutex
 }
 
 var bufFull = errors.New("Buffer Full")
 
-func newHopPacketBuffer() *hopPacketBuffer {
+func newHopPacketBuffer(flushChan chan *HopPacket, timeout time.Duration) *hopPacketBuffer {
     hb := new(hopPacketBuffer)
     hb.count = 0
     hb.timer = time.NewTimer(1000*time.Second)
     hb.timer.Stop()
+    hb.flushChan = flushChan
+    hb.timeout = timeout
+    go func() {
+        for {
+            <-hb.timer.C
+            hb.FlushToChan(hb.flushChan)
+            hb.timer.Reset(hb.timeout)
+        }
+    }()
     return hb
 }
 
-func (hb *hopPacketBuffer) push(p *HopPacket) error {
-    defer hb.mutex.Unlock()
-    hb.mutex.Lock()
-    hb.buf[hb.count] = p
-    hb.count += 1
-    if hb.count == hpBufSize {
-        return bufFull
-    } else {
-        return nil
-    }
-}
-
-func (hb *hopPacketBuffer) _push(p *HopPacket, c chan *HopPacket) {
+func (hb *hopPacketBuffer) Push(p *HopPacket) {
     defer hb.mutex.Unlock()
     hb.mutex.Lock()
 
-    hb.timer.Reset(bufferTimeout)
+    hb.timer.Reset(hb.timeout)
 
     hb.buf[hb.count] = p
     hb.count += 1
     if hb.count >= hpBufSize {
-        logger.Warning("buffer full, flushing")
-        hb._flushToChan(c)
+        // logger.Warning("buffer full, flushing")
+        hb._flush()
     }
 }
 
@@ -88,6 +87,16 @@ func (hb *hopPacketBuffer) Swap(i, j int) {
 }
 
 
+func (hb *hopPacketBuffer) Flush() {
+    defer hb.mutex.Unlock()
+    hb.mutex.Lock()
+    hb._flushToChan(hb.flushChan)
+}
+
+func (hb *hopPacketBuffer) _flush() {
+    hb._flushToChan(hb.flushChan)
+}
+
 func (hb *hopPacketBuffer) _flushToChan(c chan *HopPacket) {
     if hopFrager != nil {
         hb.outQueue = hopFrager.reAssemble(hb.buf[:hb.count])
@@ -102,7 +111,7 @@ func (hb *hopPacketBuffer) _flushToChan(c chan *HopPacket) {
     hb.count = 0
 }
 
-func (hb *hopPacketBuffer) flushToChan(c chan *HopPacket) {
+func (hb *hopPacketBuffer) FlushToChan(c chan *HopPacket) {
     defer hb.mutex.Unlock()
     hb.mutex.Lock()
     hb._flushToChan(c)

@@ -83,7 +83,7 @@ func NewClient(cfg HopClientConfig) error {
     rand.Read(hopClient.sid[:])
     hopClient.toIface = make(chan *HopPacket, 32)
     hopClient.toNet = make(chan *HopPacket, 32)
-    hopClient.recvBuf = newHopPacketBuffer()
+    hopClient.recvBuf = newHopPacketBuffer(hopClient.toIface, bufferTimeout)
     hopClient.cfg = cfg
     hopClient.state = HOP_STAT_INIT
     hopClient.handshakeDone = make(chan byte)
@@ -147,15 +147,6 @@ func NewClient(cfg HopClientConfig) error {
             }
         }()
     }
-
-    go func() {
-        for {
-            <-hopClient.recvBuf.timer.C
-            // logger.Debug("Timer fired, flushing buffer")
-            hopClient.recvBuf.flushToChan(hopClient.toIface)
-            hopClient.recvBuf.timer.Reset(bufferTimeout)
-        }
-    }()
 
     hopClient.handleInterface()
 
@@ -358,7 +349,7 @@ func (clt *HopClient) handleHandshakeError(u *net.UDPConn, hp *HopPacket) {
 // handle data packet
 func (clt *HopClient) handleDataPacket(u *net.UDPConn, hp *HopPacket) {
     // logger.Debug("New HopPacket Seq: %d", packet.Seq)
-    clt.recvBuf._push(hp, clt.toIface)
+    clt.recvBuf.Push(hp)
 }
 
 // handle finish ack

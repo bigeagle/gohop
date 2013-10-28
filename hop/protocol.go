@@ -30,7 +30,6 @@ import (
     "errors"
     "fmt"
     "strings"
-    "time"
 )
 
 const (
@@ -204,22 +203,14 @@ func newHopPeer(id uint64, srv *HopServer, addr *net.UDPAddr, idx int) *HopPeer 
     hp.addrs = make(map[[6]byte]int)
     hp.state = HOP_STAT_INIT
     hp.seq = 0
-    hp.recvBuffer = newHopPacketBuffer()
     hp.srv = srv
+    hp.recvBuffer = newHopPacketBuffer(srv.toIface, bufferTimeout/2)
     // logger.Debug("%v, %v", hp.recvBuffer, hp.srv)
 
 
     a := newhUDPAddr(addr)
     hp._addrs_lst = append(hp._addrs_lst, a)
     hp.addrs[a.hash] = idx
-
-    go func() {
-        ticker := time.NewTicker(10 * time.Millisecond)
-        for {
-            <-ticker.C
-            hp.recvBuffer.flushToChan(hp.srv.toIface)
-        }
-    }()
 
     return hp
 }
