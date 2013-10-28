@@ -148,12 +148,12 @@ func NewClient(cfg HopClientConfig) error {
         }()
     }
 
-
     go func() {
-        ticker := time.NewTicker(20 * time.Millisecond)
         for {
-            <-ticker.C
+            <-hopClient.recvBuf.timer.C
+            // logger.Debug("Timer fired, flushing buffer")
             hopClient.recvBuf.flushToChan(hopClient.toIface)
+            hopClient.recvBuf.timer.Reset(bufferTimeout)
         }
     }()
 
@@ -358,10 +358,7 @@ func (clt *HopClient) handleHandshakeError(u *net.UDPConn, hp *HopPacket) {
 // handle data packet
 func (clt *HopClient) handleDataPacket(u *net.UDPConn, hp *HopPacket) {
     // logger.Debug("New HopPacket Seq: %d", packet.Seq)
-    if err := clt.recvBuf.push(hp); err != nil {
-        logger.Debug("buffer full, flushing")
-        clt.recvBuf.flushToChan(clt.toIface)
-    }
+    clt.recvBuf._push(hp, clt.toIface)
 }
 
 // handle finish ack

@@ -24,14 +24,19 @@ import (
     "sort"
     "errors"
     "sync"
+    "time"
 )
 
-const hpBufSize = 256
+const (
+    hpBufSize = 256
+    bufferTimeout = 20 * time.Millisecond
+)
 
 type hopPacketBuffer struct {
     buf [hpBufSize]*HopPacket
     outQueue []*HopPacket
     count int
+    timer *time.Timer
     mutex sync.Mutex
 }
 
@@ -40,6 +45,8 @@ var bufFull = errors.New("Buffer Full")
 func newHopPacketBuffer() *hopPacketBuffer {
     hb := new(hopPacketBuffer)
     hb.count = 0
+    hb.timer = time.NewTimer(1000*time.Second)
+    hb.timer.Stop()
     return hb
 }
 
@@ -55,6 +62,20 @@ func (hb *hopPacketBuffer) push(p *HopPacket) error {
     }
 }
 
+func (hb *hopPacketBuffer) _push(p *HopPacket, c chan *HopPacket) {
+    defer hb.mutex.Unlock()
+    hb.mutex.Lock()
+
+    hb.timer.Reset(bufferTimeout)
+
+    hb.buf[hb.count] = p
+    hb.count += 1
+    if hb.count >= hpBufSize {
+        logger.Warning("buffer full, flushing")
+        hb._flushToChan(c)
+    }
+}
+
 func (hb *hopPacketBuffer) Len() int { return len(hb.outQueue) }
 
 func (hb *hopPacketBuffer) Less(i, j int) bool {
@@ -66,10 +87,8 @@ func (hb *hopPacketBuffer) Swap(i, j int) {
     hb.outQueue[i], hb.outQueue[j] = hb.outQueue[j], hb.outQueue[i]
 }
 
-func (hb *hopPacketBuffer) flushToChan(c chan *HopPacket) {
-    defer hb.mutex.Unlock()
-    hb.mutex.Lock()
 
+func (hb *hopPacketBuffer) _flushToChan(c chan *HopPacket) {
     if hopFrager != nil {
         hb.outQueue = hopFrager.reAssemble(hb.buf[:hb.count])
     } else {
@@ -81,4 +100,10 @@ func (hb *hopPacketBuffer) flushToChan(c chan *HopPacket) {
         c <- p
     }
     hb.count = 0
+}
+
+func (hb *hopPacketBuffer) flushToChan(c chan *HopPacket) {
+    defer hb.mutex.Unlock()
+    hb.mutex.Lock()
+    hb._flushToChan(c)
 }

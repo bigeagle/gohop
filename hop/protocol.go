@@ -25,6 +25,7 @@ import (
     "bytes"
     "encoding/binary"
     "crypto/rand"
+    "sync"
     "sync/atomic"
     "errors"
     "fmt"
@@ -193,6 +194,7 @@ type HopPeer struct {
     hsDone     chan byte
     recvBuffer  *hopPacketBuffer
     srv        *HopServer
+    _lock      sync.RWMutex
 }
 
 func newHopPeer(id uint64, srv *HopServer, addr *net.UDPAddr, idx int) *HopPeer {
@@ -227,13 +229,18 @@ func (h *HopPeer) Seq() uint32 {
 }
 
 func (h *HopPeer) addr() (*net.UDPAddr, int, bool) {
+    defer h._lock.RUnlock()
+    h._lock.RLock()
     addr := randAddr(h._addrs_lst)
+    // addr := h._addrs_lst[0]
     idx, ok := h.addrs[addr.hash]
 
     return addr.u, idx, ok
 }
 
 func (h *HopPeer) insertAddr(addr *net.UDPAddr, idx int) {
+    defer h._lock.Unlock()
+    h._lock.Lock()
     a := newhUDPAddr(addr)
     if _, found := h.addrs[a.hash]; !found {
         h.addrs[a.hash] = idx

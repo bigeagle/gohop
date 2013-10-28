@@ -179,7 +179,7 @@ func (srv *HopServer) listenAndServe(port string, idx int) {
     go func() {
         for {
             packet := <-toNet
-            logger.Debug("index: %d, port: %s", idx, port)
+            // logger.Debug("index: %d, port: %s", idx, port)
             // logger.Debug("client addr: %v", packet.addr)
             udpConn.WriteTo(packet.data, packet.addr)
         }
@@ -379,7 +379,8 @@ func (srv *HopServer) handleDataPacket(u *udpPacket, hp *HopPacket) {
     sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
 
     if peer, ok := srv.peers[sid]; ok {
-        peer.insertAddr(u.addr, u.channel)
+        // logger.Debug("n peer addrs: %v", len(peer._addrs_lst))
+        // peer.insertAddr(u.addr, u.channel)
 
         if err := peer.recvBuffer.push(hp); err != nil {
             logger.Debug("buffer full, flushing")
