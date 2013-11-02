@@ -75,6 +75,10 @@ func NewServer(cfg HopServerConfig) error {
         return err
     }
 
+    if cfg.MTU != 0 {
+        MTU = cfg.MTU
+    }
+
     hopServer := new(HopServer)
     hopServer.fromNet = make(chan *udpPacket, 32)
     hopServer.fromIface = make(chan []byte, 32)
@@ -140,7 +144,7 @@ func NewServer(cfg HopServerConfig) error {
         }
     }()
 
-    buf := make([]byte, MTU)
+    buf := make([]byte, IFACE_BUFSIZE)
     for {
         n, err := iface.Read(buf)
         if err != nil {

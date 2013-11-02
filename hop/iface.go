@@ -45,7 +45,7 @@ func newTun(name string) (iface *water.Interface, err error) {
     }
     logger.Info("interface %v created", iface.Name())
 
-    sargs := fmt.Sprintf("link set dev %s up mtu %d", iface.Name(), MTU)
+    sargs := fmt.Sprintf("link set dev %s up mtu %d qlen 100", iface.Name(), MTU)
     args := strings.Split(sargs, " ")
     cmd := exec.Command("ip", args...)
     logger.Info("ip %s", sargs)
@@ -229,5 +229,34 @@ func unredirectPort(from, to string) error {
     if err != nil {
         return err
     }
+    return nil
+}
+
+func fixMSS(iface string) error {
+    mss := MTU - 40
+    logger.Info("Fix MSS with iptables to %d", mss)
+    sargs := fmt.Sprintf("-I FORWARD -o %s -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss %d", iface, mss)
+    args := strings.Split(sargs, " ")
+    cmd := exec.Command("iptables", args...)
+    err := cmd.Run()
+
+    if err != nil {
+        return err
+    }
+    return nil
+}
+
+func clearMSS(iface string) error {
+    mss := MTU - 40
+    logger.Info("Clean MSS fix", mss)
+    sargs := fmt.Sprintf("-D FORWARD -o %s -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss %d", iface, mss)
+    args := strings.Split(sargs, " ")
+    cmd := exec.Command("iptables", args...)
+    err := cmd.Run()
+
+    if err != nil {
+        return err
+    }
+
     return nil
 }

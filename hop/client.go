@@ -78,6 +78,9 @@ func NewClient(cfg HopClientConfig) error {
         return err
     }
 
+    if cfg.MTU != 0 {
+        MTU = cfg.MTU
+    }
 
     hopClient := new(HopClient)
     rand.Read(hopClient.sid[:])
@@ -168,7 +171,7 @@ func (clt *HopClient) handleInterface() {
         }
     }()
 
-    frame := make([]byte, MTU)
+    frame := make([]byte, IFACE_BUFSIZE)
     for {
         n, err := clt.iface.Read(frame)
         if err != nil {
@@ -221,7 +224,7 @@ func (clt *HopClient) handleUDP(server string) {
     }()
 
     // add route through net gateway
-    if clt.cfg.Redirect_gateway {
+    if clt.cfg.Redirect_gateway && (!clt.cfg.Local) {
         if atomic.CompareAndSwapInt32(&clt.srvRoute, 0, 1) {
             if udpAddr, ok := udpConn.RemoteAddr().(*net.UDPAddr); ok {
                 srvIP := udpAddr.IP.To4()
@@ -327,7 +330,9 @@ func (clt *HopClient) handleHandshakeAck(u *net.UDPConn, hp *HopPacket) {
         ip := net.IP(_ip)
         subnet := &net.IPNet{_net, _mask}
         setTunIP(clt.iface, ip, subnet)
-
+        if clt.cfg.FixMSS {
+            fixMSS(clt.iface.Name())
+        }
         res := atomic.CompareAndSwapInt32(&clt.state, HOP_STAT_HANDSHAKE, HOP_STAT_WORKING)
         if !res {
             logger.Error("Client state not expected: %d", clt.state)
@@ -368,8 +373,12 @@ func (clt *HopClient) cleanUp() {
         delRoute("0.0.0.0/1")
         delRoute("128.0.0.0/1")
     }
+    if clt.cfg.FixMSS {
+        clearMSS(clt.iface.Name())
+    }
 
-    timeout := time.After(5 * time.Second)
+
+    timeout := time.After(3 * time.Second)
     if clt.state != HOP_STAT_INIT {
         clt.finishSession()
     }

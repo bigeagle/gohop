@@ -205,6 +205,7 @@ type HopServerConfig struct {
     HopStart int
     HopEnd int
     Addr string
+    MTU int
     Key string
     MorphMethod string
 }
@@ -215,7 +216,8 @@ type HopClientConfig struct {
     HopStart int
     HopEnd int
     Key string
-    MTU string
+    MTU int
+    FixMSS bool
     Local bool
     MorphMethod string
     Redirect_gateway bool
