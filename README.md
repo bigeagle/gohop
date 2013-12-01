@@ -22,7 +22,7 @@ So I'm going to implement a VPN with these features:
 
 1. Pre-shared key based authentication, randomly generated key for encryption. NO SSL, maybe a reinvented SSL :).
 2. "Frequency hopping"-like port and protocol hopping, both handshake and packet transmission will be acctually done in random port and protocol.
-3. Flow obfuscation to hide HTTP characters.
+3. Traffic shaping to hide protocol's statistical properties.
 
 Implemention
 -------
@@ -37,13 +37,12 @@ You can get updated release from https://github.com/bigeagle/gohop/releases , go
 
 ### Build and Install
 
-There's no prebuilt binary relase yet, u need to compile it yourself. Go 1.1 enviroment is needed, google is your friend.
-
 First get dependency libraries and gohop source code.
 
 ```
 go get github.com/bigeagle/go-logging
 go get github.com/bigeagle/water
+go get code.google.com/p/gcfg
 go get github.com/bigeagle/gohop
 ```
 
@@ -55,21 +54,21 @@ go install github.com/bigeagle/gohop
 
 ### Config and Run
 
-on the server, if u are using it for anti-GFW internet access, ip forwarding is needed:
+On the server, if u are using it for anti-GFW internet access, ip forwarding is needed:
 
 ```
 sysctl net.ipv4.ip_forward=1
 iptables -t nat -A POSTROUTING -j MASQUERADE
 ```
 
-edit `server.json` as your server's config file, **currently u need to set ip address manually**. Run
+edit `server.ini` as your server's config file. Run
 ```
-gohop -server server.json
+gohop server.ini
 ```
 
-at client side, edit `client.json` as your config file, custom routes is supported so that in-china network packets will not go through gohop. And again, **u need to set ip address manually**. Run
+at client side, edit `client.ini` as your config file, custom routes is supported so that in-china network packets will not go through gohop. Run
 ```
-gohop -client client.json
+gohop client.ini
 ```
 wait until u see `Connection Initialized`, pay attention to your DNS config, if u are using a Chinese DNS server, u're still unable to access blocked websites.
 

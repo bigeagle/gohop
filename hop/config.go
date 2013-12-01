@@ -204,6 +204,7 @@ func serverParseConfig(cfgFile string) (*hopServerConfig, error) {
 type HopServerConfig struct {
     HopStart int
     HopEnd int
+    ListenAddr string
     Addr string
     MTU int
     Key string

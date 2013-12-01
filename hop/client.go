@@ -72,7 +72,7 @@ type HopClient struct {
 func NewClient(cfg HopClientConfig) error {
     var err error
 
-    logger.Debug("%v", cfg)
+    // logger.Debug("%v", cfg)
     cipher, err = newHopCipher([]byte(cfg.Key))
     if err != nil {
         return err
@@ -253,8 +253,9 @@ func (clt *HopClient) handleUDP(server string) {
 
     buf := make([]byte, IFACE_BUFSIZE)
     for {
+        logger.Debug("waiting for udp packet")
         n, err := udpConn.Read(buf)
-        // logger.Debug("New UDP Packet, len: %d", n)
+        logger.Debug("New UDP Packet, len: %d", n)
         if err != nil {
             logger.Error(err.Error())
             return
@@ -262,6 +263,7 @@ func (clt *HopClient) handleUDP(server string) {
 
         hp, err := unpackHopPacket(buf[:n])
         if err != nil {
+            logger.Debug("Error depacketing")
             continue
         }
         if handle_func, ok := pktHandle[hp.Flag]; ok {

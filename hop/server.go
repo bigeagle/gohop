@@ -122,7 +122,7 @@ func NewServer(cfg HopServerConfig) error {
 
     // serve for multiple ports
     for idx, port := 0, cfg.HopStart; port <= cfg.HopEnd; port++ {
-        go hopServer.listenAndServe(fmt.Sprintf("%d", port), idx)
+        go hopServer.listenAndServe(cfg.ListenAddr, fmt.Sprintf("%d", port), idx)
         idx++
     }
 
@@ -158,8 +158,8 @@ func NewServer(cfg HopServerConfig) error {
 
 }
 
-func (srv *HopServer) listenAndServe(port string, idx int) {
-    port = ":" + port
+func (srv *HopServer) listenAndServe(addr string, port string, idx int) {
+    port = addr + ":" + port
     udpAddr, err := net.ResolveUDPAddr("udp", port)
     if err != nil {
         logger.Error("Invalid port: %s", port)
@@ -262,10 +262,12 @@ func (srv *HopServer) toClient(peer *HopPeer, flag byte, payload []byte, noise b
     hp.Flag = flag
     hp.payload = payload
 
-    // logger.Debug("Peer: %v", hpeer)
     if addr, idx, ok := peer.addr(); ok {
+        logger.Debug("peer: %v", addr)
         upacket := &udpPacket{addr, hp.Pack(), idx}
         srv.toNet[idx] <- upacket
+    } else {
+        logger.Debug("peer not found")
     }
 }
 
@@ -297,7 +299,7 @@ func (srv *HopServer) bufferToClient(peer *HopPeer, buf []byte) {
 
 func (srv *HopServer) handleKnock(u *udpPacket, hp *HopPacket) {
     sid := uint64(binary.BigEndian.Uint32(hp.payload[:4]))
-    // logger.Debug("port knock from client %v, sid: %d", u.addr, sid)
+    logger.Debug("port knock from client %v, sid: %d", u.addr, sid)
     sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
 
     hpeer, ok := srv.peers[sid]
