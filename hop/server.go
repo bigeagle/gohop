@@ -25,9 +25,9 @@ import (
     "bytes"
     "fmt"
     "net"
-//     "os"
-//     "os/signal"
-//     "syscall"
+    "os"
+    "os/signal"
+    "syscall"
     "time"
     "sync/atomic"
     "sync"
@@ -101,6 +101,10 @@ func NewServer(cfg HopServerConfig) error {
     hopServer.ipnet = &net.IPNet{ip, subnet.Mask}
     hopServer.ippool.subnet = subnet
 
+    if cfg.FixMSS {
+        fixMSS(iface.Name(), true)
+    }
+
     // traffic morpher
     switch cfg.MorphMethod {
     case "randsize":
@@ -119,6 +123,7 @@ func NewServer(cfg HopServerConfig) error {
     //     defer hopServer.cleanUp()
     //     redirectPort(cfg.HopRange, cfg.Port)
     // }()
+    go hopServer.cleanUp()
 
     // serve for multiple ports
     for idx, port := 0, cfg.HopStart; port <= cfg.HopEnd; port++ {
@@ -408,11 +413,11 @@ func (srv *HopServer) handleFinish(u *udpPacket, hp *HopPacket) {
     srv.toClient(hpeer, HOP_FLG_FIN | HOP_FLG_ACK, []byte{}, false)
 }
 
-// func (srv *HopServer) cleanUp() {
-//     c := make(chan os.Signal, 1)
-//     signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
-//     <-c
-//
-//     unredirectPort(srv.cfg.HopRange, srv.cfg.Port)
-//     os.Exit(0)
-// }
+func (srv *HopServer) cleanUp() {
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+    <-c
+
+    clearMSS(srv.iface.Name(), true)
+    os.Exit(0)
+}

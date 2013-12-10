@@ -208,6 +208,7 @@ type HopServerConfig struct {
     Addr string
     MTU int
     Key string
+    FixMSS bool
     MorphMethod string
 }
 

@@ -333,7 +333,7 @@ func (clt *HopClient) handleHandshakeAck(u *net.UDPConn, hp *HopPacket) {
         subnet := &net.IPNet{_net, _mask}
         setTunIP(clt.iface, ip, subnet)
         if clt.cfg.FixMSS {
-            fixMSS(clt.iface.Name())
+            fixMSS(clt.iface.Name(), false)
         }
         res := atomic.CompareAndSwapInt32(&clt.state, HOP_STAT_HANDSHAKE, HOP_STAT_WORKING)
         if !res {
@@ -376,7 +376,7 @@ func (clt *HopClient) cleanUp() {
         delRoute("128.0.0.0/1")
     }
     if clt.cfg.FixMSS {
-        clearMSS(clt.iface.Name())
+        clearMSS(clt.iface.Name(), false)
     }
 
 

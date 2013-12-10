@@ -232,10 +232,15 @@ func unredirectPort(from, to string) error {
     return nil
 }
 
-func fixMSS(iface string) error {
+func fixMSS(iface string, is_server bool) error {
     mss := MTU - 40
     logger.Info("Fix MSS with iptables to %d", mss)
-    sargs := fmt.Sprintf("-I FORWARD -o %s -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss %d", iface, mss)
+    io := "o"
+    if is_server {
+        io = "i"
+    }
+
+    sargs := fmt.Sprintf("-I FORWARD -%s %s -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss %d", io, iface, mss)
     args := strings.Split(sargs, " ")
     cmd := exec.Command("iptables", args...)
     err := cmd.Run()
@@ -246,10 +251,16 @@ func fixMSS(iface string) error {
     return nil
 }
 
-func clearMSS(iface string) error {
+func clearMSS(iface string, is_server bool) error {
     mss := MTU - 40
     logger.Info("Clean MSS fix", mss)
-    sargs := fmt.Sprintf("-D FORWARD -o %s -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss %d", iface, mss)
+    io := "o"
+
+    if is_server {
+        io = "i"
+    }
+    sargs := fmt.Sprintf("-D FORWARD -%s %s -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss %d", io, iface, mss)
+
     args := strings.Split(sargs, " ")
     cmd := exec.Command("iptables", args...)
     err := cmd.Run()
