@@ -29,7 +29,7 @@ import (
 var srvMode, cltMode, debug, getVersion bool
 var cfgFile string
 
-var VERSION = "0.3alpha2"
+var VERSION = "0.3.1-dev"
 
 func main() {
     flag.BoolVar(&getVersion, "version", false, "Get Version info")
