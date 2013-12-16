@@ -253,7 +253,7 @@ func fixMSS(iface string, is_server bool) error {
 
 func clearMSS(iface string, is_server bool) error {
     mss := MTU - 40
-    logger.Info("Clean MSS fix", mss)
+    logger.Info("Clean MSS fix")
     io := "o"
 
     if is_server {
