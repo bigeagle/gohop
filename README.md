@@ -33,6 +33,7 @@ How To Use
 You can get updated release from https://github.com/bigeagle/gohop/releases , go programs are static-linked, so it's very likely that my pre-built releases can run on your box.
 
 ### Build and Install
+**Building GoHop needs Go 1.1 or higher.**
 
 First get dependency libraries and gohop source code.
 
