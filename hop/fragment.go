@@ -163,7 +163,12 @@ func (hf *HopFragmenter) reAssemble(packets []*HopPacket) []*HopPacket {
     now := time.Now().Unix()
 
     hf.cache.lock.Lock()
-    defer hf.cache.lock.Unlock()
+    defer func(){
+        hf.cache.lock.Unlock()
+        if err:=recover(); err!=nil {
+            logger.Error("Error reassemble packet fragments: %s", err)
+        }
+    }()
 
     for _, p := range(packets) {
         // logger.Debug("frag: %v", p.hopPacketHeader)
