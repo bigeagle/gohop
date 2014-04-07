@@ -63,6 +63,7 @@ type HopServer struct {
     fromIface chan []byte
     toIface chan *HopPacket
     _lock sync.RWMutex
+    _chanBufSize int
 }
 
 
@@ -79,10 +80,12 @@ func NewServer(cfg HopServerConfig) error {
         MTU = cfg.MTU
     }
 
+
     hopServer := new(HopServer)
-    hopServer.fromNet = make(chan *udpPacket, 32)
-    hopServer.fromIface = make(chan []byte, 32)
-    hopServer.toIface = make(chan *HopPacket, 32)
+    hopServer._chanBufSize = 256
+    hopServer.fromNet = make(chan *udpPacket, hopServer._chanBufSize)
+    hopServer.fromIface = make(chan []byte, hopServer._chanBufSize)
+    hopServer.toIface = make(chan *HopPacket, hopServer._chanBufSize)
     hopServer.peers = make(map[uint64]*HopPeer)
     hopServer.cfg = cfg
     hopServer.toNet = make([]chan *udpPacket, (cfg.HopEnd-cfg.HopStart+1))
@@ -176,7 +179,7 @@ func (srv *HopServer) listenAndServe(addr string, port string, idx int) {
         return
     }
 
-    toNet := make(chan *udpPacket, 32)
+    toNet := make(chan *udpPacket, srv._chanBufSize)
 
     go func() {
         defer srv._lock.Unlock()

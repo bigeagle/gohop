@@ -73,6 +73,13 @@ wait until u see `Connection Initialized`, pay attention to your DNS config, if 
 now try to ping `twitter.com` and cheers :).
 
 
+Publications
+-------
+If you think this helpful, please cite:
+
+* Wang, Yuzhi; Ji, Ping; Ye, Borui; Wang, Pengjun; Luo, Rong; Yang, Huazhong, "GoHop: Personal VPN to defend from censorship," _Advanced Communication Technology (ICACT), 2014 16th International Conference on_, pp.27,33, 2014
+
+
 LICENSE
 ------
 ```
