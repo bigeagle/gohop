@@ -35,19 +35,10 @@ You can get updated release from https://github.com/bigeagle/gohop/releases , go
 ### Build and Install
 **Building GoHop needs Go 1.1 or higher.**
 
-First get dependency libraries and gohop source code.
+gohop is a go-gettable package:
 
 ```
-go get github.com/bigeagle/go-logging
-go get github.com/bigeagle/water
-go get code.google.com/p/gcfg
 go get github.com/bigeagle/gohop
-```
-
-build and install:
-
-```
-go install github.com/bigeagle/gohop
 ```
 
 ### Config and Run
