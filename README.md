@@ -23,7 +23,7 @@ So I'm going to implement a VPN with these features:
 
 Notice
 -------
-GoHop is built on top of Linux's `tun/tap` device. **Currently it does neither support Windows nor OS X**
+GoHop is built on top of Linux's `tun/tap` device. **Currently it supports neither Windows nor OS X**
 
 I think it would not be very difficult to port it to OS X. However, I'm not able to develop a OS X edition as I'm not a mac owner. If u wanna help, please fork and send me pull requests, I'd appreciate it.
 
