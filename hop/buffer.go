@@ -21,41 +21,43 @@
 package hop
 
 import (
-    "sort"
     "errors"
     "sync"
     "time"
-)
-
-const (
-    hpBufSize = 384
-    bufferTimeout = 20 * time.Millisecond
+    // "runtime"
+    "container/list"
 )
 
 type hopPacketBuffer struct {
-    buf [hpBufSize]*HopPacket
+    buf *list.List
     outQueue []*HopPacket
-    count int
-    timer *time.Timer
-    timeout time.Duration
+    // timer *time.Timer
+    // timeout time.Duration
     flushChan chan *HopPacket
     mutex sync.Mutex
+    newPack chan bool
 }
 
 var bufFull = errors.New("Buffer Full")
 
 func newHopPacketBuffer(flushChan chan *HopPacket, timeout time.Duration) *hopPacketBuffer {
     hb := new(hopPacketBuffer)
-    hb.count = 0
-    hb.timer = time.NewTimer(1000*time.Second)
-    hb.timer.Stop()
+    hb.buf = list.New()
+    // hb.timer = time.NewTimer(1000*time.Second)
+    // hb.timer.Stop()
     hb.flushChan = flushChan
-    hb.timeout = timeout
+    // hb.timeout = timeout
+    hb.newPack = make(chan bool, 32)
     go func() {
         for {
-            <-hb.timer.C
-            hb.FlushToChan(hb.flushChan)
-            hb.timer.Reset(hb.timeout)
+            <-hb.newPack
+            p := hb.Pop()
+            if p != nil {
+                hb.flushChan <- p
+            }
+            // <-hb.timer.C
+            // hb.FlushToChan(hb.flushChan)
+            // hb.timer.Reset(hb.timeout)
         }
     }()
     return hb
@@ -65,27 +67,34 @@ func (hb *hopPacketBuffer) Push(p *HopPacket) {
     defer hb.mutex.Unlock()
     hb.mutex.Lock()
 
-    hb.timer.Reset(hb.timeout)
+    // hb.timer.Reset(hb.timeout)
 
-    hb.buf[hb.count] = p
-    hb.count += 1
-    if hb.count >= hpBufSize {
-        // logger.Warning("buffer full, flushing")
-        hb._flush()
+    // hb.buf[hb.count] = p
+    // hb.count += 1
+
+    if hb.buf.Len() > 0 {
+        for e := hb.buf.Back(); e != nil; e = e.Prev() {
+            ep := e.Value.(*HopPacket)
+            if ep.Seq <= p.Seq {
+                hb.buf.InsertAfter(p, e)
+                break
+            }
+        }
+    } else {
+        hb.buf.PushBack(p)
     }
+    hb.newPack <- true
 }
 
-func (hb *hopPacketBuffer) Len() int { return len(hb.outQueue) }
+func (hb *hopPacketBuffer) Pop() *HopPacket {
+    defer hb.mutex.Unlock()
+    hb.mutex.Lock()
 
-func (hb *hopPacketBuffer) Less(i, j int) bool {
-    a, b := hb.outQueue[i], hb.outQueue[j]
-    return a.Seq < b.Seq
+    if hb.buf.Len() == 0 {
+        return nil
+    }
+    return hb.buf.Remove(hb.buf.Front()).(*HopPacket)
 }
-
-func (hb *hopPacketBuffer) Swap(i, j int) {
-    hb.outQueue[i], hb.outQueue[j] = hb.outQueue[j], hb.outQueue[i]
-}
-
 
 func (hb *hopPacketBuffer) Flush() {
     defer hb.mutex.Unlock()
@@ -99,16 +108,22 @@ func (hb *hopPacketBuffer) _flush() {
 
 func (hb *hopPacketBuffer) _flushToChan(c chan *HopPacket) {
     if hopFrager != nil {
-        hb.outQueue = hopFrager.reAssemble(hb.buf[:hb.count])
+        //hb.outQueue = hopFrager.reAssemble(hb.buf[:hb.count])
+        buf := make([]*HopPacket, 0, hb.buf.Len())
+        for e := hb.buf.Front(); e != nil; e = e.Next() {
+            buf = append(buf, e.Value.(*HopPacket))
+        }
+        for _, p := range(hopFrager.reAssemble(buf)) {
+            c <- p
+        }
+        hb.buf.Init()
     } else {
-        hb.outQueue = hb.buf[:hb.count]
+        for e := hb.buf.Front(); e != nil; e = e.Next() {
+            c <- e.Value.(*HopPacket)
+        }
+        hb.buf.Init()
     }
 
-    sort.Sort(hb)
-    for _, p := range(hb.outQueue) {
-        c <- p
-    }
-    hb.count = 0
 }
 
 func (hb *hopPacketBuffer) FlushToChan(c chan *HopPacket) {
