@@ -82,7 +82,7 @@ func NewServer(cfg HopServerConfig) error {
 
 
     hopServer := new(HopServer)
-    hopServer._chanBufSize = 256
+    hopServer._chanBufSize = 2048
     hopServer.fromNet = make(chan *udpPacket, hopServer._chanBufSize)
     hopServer.fromIface = make(chan []byte, hopServer._chanBufSize)
     hopServer.toIface = make(chan *HopPacket, hopServer._chanBufSize)
@@ -424,7 +424,10 @@ func (srv *HopServer) cleanUp() {
     c := make(chan os.Signal, 1)
     signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
     <-c
-
+    for _, hpeer := range srv.peers {
+        srv.toClient(hpeer, HOP_FLG_FIN, []byte{}, false)
+        srv.toClient(hpeer, HOP_FLG_FIN, []byte{}, false)
+    }
     clearMSS(srv.iface.Name(), true)
     os.Exit(0)
 }

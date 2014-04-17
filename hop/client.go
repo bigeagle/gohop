@@ -84,8 +84,8 @@ func NewClient(cfg HopClientConfig) error {
 
     hopClient := new(HopClient)
     rand.Read(hopClient.sid[:])
-    hopClient.toIface = make(chan *HopPacket, 32)
-    hopClient.toNet = make(chan *HopPacket, 32)
+    hopClient.toIface = make(chan *HopPacket, 128)
+    hopClient.toNet = make(chan *HopPacket, 128)
     hopClient.recvBuf = newHopPacketBuffer(hopClient.toIface)
     hopClient.cfg = cfg
     hopClient.state = HOP_STAT_INIT
@@ -216,6 +216,7 @@ func (clt *HopClient) handleUDP(server string) {
         HOP_FLG_DAT: clt.handleDataPacket,
         HOP_FLG_DAT | HOP_FLG_MFR: clt.handleDataPacket,
         HOP_FLG_FIN | HOP_FLG_ACK: clt.handleFinishAck,
+        HOP_FLG_FIN: clt.handleFinish,
     }
 
     clt.knock(udpConn)
@@ -255,9 +256,9 @@ func (clt *HopClient) handleUDP(server string) {
 
     buf := make([]byte, IFACE_BUFSIZE)
     for {
-        logger.Debug("waiting for udp packet")
+        //logger.Debug("waiting for udp packet")
         n, err := udpConn.Read(buf)
-        logger.Debug("New UDP Packet, len: %d", n)
+        //logger.Debug("New UDP Packet, len: %d", n)
         if err != nil {
             logger.Error(err.Error())
             return
@@ -366,6 +367,12 @@ func (clt *HopClient) handleFinishAck(u *net.UDPConn, hp *HopPacket) {
     clt.finishAck <- byte(1)
 }
 
+// handle finish
+func (clt *HopClient) handleFinish(u *net.UDPConn, hp *HopPacket) {
+    logger.Info("Finish")
+    pid := os.Getpid()
+    syscall.Kill(pid, syscall.SIGTERM)
+}
 
 func (clt *HopClient) cleanUp() {
     c := make(chan os.Signal, 1)

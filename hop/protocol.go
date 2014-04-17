@@ -27,7 +27,7 @@ import (
     "crypto/rand"
     "sync"
     "sync/atomic"
-    // "errors"
+    "errors"
     "fmt"
     "strings"
 )
@@ -113,8 +113,7 @@ func (p *HopPacket) Pack() []byte {
         buf.Write(p.noise)
         p.buf = buf.Bytes()
     }
-    // return cipher.encrypt(p.buf)
-    return p.buf
+    return cipher.encrypt(p.buf)
 }
 
 func (p *HopPacket) Size() int {
@@ -148,26 +147,19 @@ func (p *HopPacket) String() string {
 }
 
 func unpackHopPacket(b []byte) (*HopPacket, error) {
-    buf := bytes.NewBuffer(b)
+    iv := b[:cipherBlockSize]
+    ctext := b[cipherBlockSize:]
+    if frame := cipher.decrypt(iv, ctext); frame != nil {
+        buf := bytes.NewBuffer(frame)
 
-    p := new(HopPacket)
-    binary.Read(buf, binary.BigEndian, &p.hopPacketHeader)
-    p.payload = make([]byte, p.Dlen)
-    buf.Read(p.payload)
-    return p, nil
-    // iv := b[:cipherBlockSize]
-    // ctext := b[cipherBlockSize:]
-    // if frame := cipher.decrypt(iv, ctext); frame != nil {
-    //     buf := bytes.NewBuffer(frame)
-
-    //     p := new(HopPacket)
-    //     binary.Read(buf, binary.BigEndian, &p.hopPacketHeader)
-    //     p.payload = make([]byte, p.Dlen)
-    //     buf.Read(p.payload)
-    //     return p, nil
-    // } else {
-    //     return nil, errors.New("Decrypt Packet Error")
-    // }
+        p := new(HopPacket)
+        binary.Read(buf, binary.BigEndian, &p.hopPacketHeader)
+        p.payload = make([]byte, p.Dlen)
+        buf.Read(p.payload)
+        return p, nil
+    } else {
+        return nil, errors.New("Decrypt Packet Error")
+    }
 
 }
 
