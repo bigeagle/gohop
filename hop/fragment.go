@@ -13,7 +13,7 @@ const (
     MAX_FRAGS = 8
 )
 
-var hopFrager *HopFragmenter
+// var hopFrager *HopFragmenter
 
 
 type hopSequencer interface {

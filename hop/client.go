@@ -86,7 +86,7 @@ func NewClient(cfg HopClientConfig) error {
     rand.Read(hopClient.sid[:])
     hopClient.toIface = make(chan *HopPacket, 32)
     hopClient.toNet = make(chan *HopPacket, 32)
-    hopClient.recvBuf = newHopPacketBuffer(hopClient.toIface, bufferTimeout)
+    hopClient.recvBuf = newHopPacketBuffer(hopClient.toIface)
     hopClient.cfg = cfg
     hopClient.state = HOP_STAT_INIT
     hopClient.handshakeDone = make(chan byte)
@@ -96,9 +96,10 @@ func NewClient(cfg HopClientConfig) error {
 
     switch cfg.MorphMethod {
     case "randsize":
-        m := newRandMorpher(MTU)
-        hopFrager = newHopFragmenter(m)
-        logger.Info("Using RandomSize Morpher")
+        logger.Warning("Traffic Morphing is disabled in this version")
+        // m := newRandMorpher(MTU)
+        // hopFrager = newHopFragmenter(m)
+        // logger.Info("Using RandomSize Morpher")
     default:
         logger.Info("No Traffic Morphing")
     }
@@ -181,14 +182,15 @@ func (clt *HopClient) handleInterface() {
 
         buf := make([]byte, n+HOP_HDR_LEN)
         copy(buf[HOP_HDR_LEN:], frame[:n])
+        hp := new(HopPacket)
+        hp.payload = buf[HOP_HDR_LEN:]
+        hp.buf = buf
+        hp.Seq = clt.Seq()
+        clt.toNet <- hp
+        /*
         if hopFrager == nil {
             // if no traffic morphing
             // Hack to reduce memcopy
-            hp := new(HopPacket)
-            hp.payload = buf[HOP_HDR_LEN:]
-            hp.buf = buf
-            hp.Seq = clt.Seq()
-            clt.toNet <- hp
 
         } else {
             // with traffic morphing
@@ -197,7 +199,7 @@ func (clt *HopClient) handleInterface() {
                 clt.toNet <- hp
             }
         }
-
+        */
     }
 }
 

@@ -24,6 +24,7 @@ import (
     "github.com/bigeagle/gohop/hop"
     "github.com/bigeagle/gohop/logging"
     "os"
+    "runtime"
 )
 
 var srvMode, cltMode, debug, getVersion bool
@@ -62,6 +63,11 @@ func main() {
     icfg, err := hop.ParseHopConfig(cfgFile)
     logger.Debug("%v", icfg)
     checkerr(err)
+
+    maxProcs := runtime.GOMAXPROCS(0)
+    if maxProcs < 2 {
+        runtime.GOMAXPROCS(2)
+    }
 
     switch cfg := icfg.(type) {
     case hop.HopServerConfig:

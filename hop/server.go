@@ -111,9 +111,10 @@ func NewServer(cfg HopServerConfig) error {
     // traffic morpher
     switch cfg.MorphMethod {
     case "randsize":
-        m := newRandMorpher(MTU)
-        hopFrager = newHopFragmenter(m)
-        logger.Info("Using RandomSize Morpher")
+        // m := newRandMorpher(MTU)
+        // hopFrager = newHopFragmenter(m)
+        // logger.Info("Using RandomSize Morpher")
+        logger.Warning("Traffic Morphing is disabled in this version")
     default:
         logger.Info("No Traffic Morphing")
     }
@@ -280,18 +281,20 @@ func (srv *HopServer) toClient(peer *HopPeer, flag byte, payload []byte, noise b
 }
 
 func (srv *HopServer) bufferToClient(peer *HopPeer, buf []byte) {
+    hp := new(HopPacket)
+    hp.Flag = HOP_FLG_DAT
+    hp.buf = buf
+    hp.payload = buf[HOP_HDR_LEN:]
+    hp.Seq = peer.Seq()
+
+    if addr, idx, ok := peer.addr(); ok {
+        upacket := &udpPacket{addr, hp.Pack(), idx}
+        srv.toNet[idx] <- upacket
+    }
+
+    /*
     if hopFrager == nil {
         // if no traffic morphing
-        hp := new(HopPacket)
-        hp.Flag = HOP_FLG_DAT
-        hp.buf = buf
-        hp.payload = buf[HOP_HDR_LEN:]
-        hp.Seq = peer.Seq()
-
-        if addr, idx, ok := peer.addr(); ok {
-            upacket := &udpPacket{addr, hp.Pack(), idx}
-            srv.toNet[idx] <- upacket
-        }
     } else {
         // with traffic morphing
         frame := buf[HOP_HDR_LEN:]
@@ -303,6 +306,7 @@ func (srv *HopServer) bufferToClient(peer *HopPeer, buf []byte) {
             }
         }
     }
+    */
 }
 
 func (srv *HopServer) handleKnock(u *udpPacket, hp *HopPacket) {
