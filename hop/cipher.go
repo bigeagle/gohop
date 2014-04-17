@@ -23,6 +23,7 @@ import (
     "crypto/aes"
     _cipher "crypto/cipher"
     "crypto/rand"
+    "code.google.com/p/snappy-go/snappy"
 )
 
 type hopCipher struct {
@@ -43,7 +44,10 @@ func newHopCipher(key []byte) (*hopCipher, error) {
 }
 
 func (s *hopCipher) encrypt(msg []byte) []byte {
-    pmsg := PKCS5Padding(msg, cipherBlockSize)
+    cmsg := make([]byte, snappy.MaxEncodedLen(len(msg)))
+    cmsg, _ = snappy.Encode(cmsg, msg)
+
+    pmsg := PKCS5Padding(cmsg, cipherBlockSize)
     buf := make([]byte, len(pmsg)+cipherBlockSize)
 
     iv := buf[:cipherBlockSize]
@@ -63,7 +67,10 @@ func (s *hopCipher) decrypt(iv []byte, ctext []byte) []byte {
     decrypter := _cipher.NewCBCDecrypter(s.block, iv)
     buf := make([]byte, len(ctext))
     decrypter.CryptBlocks(buf, ctext)
-    return PKCS5UnPadding(buf)
+    cmsg := PKCS5UnPadding(buf)
+
+    msg, _ := snappy.Decode(nil, cmsg)
+    return msg
 }
 
 func PKCS5Padding(ciphertext []byte, blockSize int) []byte {
