@@ -19,68 +19,69 @@
 package hop
 
 import (
-    "bytes"
-    "crypto/aes"
-    _cipher "crypto/cipher"
-    "crypto/rand"
-    "code.google.com/p/snappy-go/snappy"
+	"bytes"
+	"crypto/aes"
+	_cipher "crypto/cipher"
+	"crypto/rand"
+
+	"code.google.com/p/snappy-go/snappy"
 )
 
 type hopCipher struct {
-    block _cipher.Block
+	block _cipher.Block
 }
 
 const cipherBlockSize = 16
 
 func newHopCipher(key []byte) (*hopCipher, error) {
-    s := new(hopCipher)
-    key = PKCS5Padding(key, cipherBlockSize)
-    block, err := aes.NewCipher(key)
-    if err != nil {
-        return nil, err
-    }
-    s.block = block
-    return s, nil
+	s := new(hopCipher)
+	key = PKCS5Padding(key, cipherBlockSize)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	s.block = block
+	return s, nil
 }
 
 func (s *hopCipher) encrypt(msg []byte) []byte {
-    cmsg := make([]byte, snappy.MaxEncodedLen(len(msg)))
-    cmsg, _ = snappy.Encode(cmsg, msg)
+	cmsg := make([]byte, snappy.MaxEncodedLen(len(msg)))
+	cmsg, _ = snappy.Encode(cmsg, msg)
 
-    pmsg := PKCS5Padding(cmsg, cipherBlockSize)
-    buf := make([]byte, len(pmsg)+cipherBlockSize)
+	pmsg := PKCS5Padding(cmsg, cipherBlockSize)
+	buf := make([]byte, len(pmsg)+cipherBlockSize)
 
-    iv := buf[:cipherBlockSize]
-    rand.Read(iv)
-    encrypter := _cipher.NewCBCEncrypter(s.block, iv)
-    encrypter.CryptBlocks(buf[cipherBlockSize:], pmsg)
+	iv := buf[:cipherBlockSize]
+	rand.Read(iv)
+	encrypter := _cipher.NewCBCEncrypter(s.block, iv)
+	encrypter.CryptBlocks(buf[cipherBlockSize:], pmsg)
 
-    return buf
+	return buf
 }
 
 func (s *hopCipher) decrypt(iv []byte, ctext []byte) []byte {
-    defer func(){
-        if err := recover(); err != nil {
-            logger.Error("%v", err)
-        }
-    }()
-    decrypter := _cipher.NewCBCDecrypter(s.block, iv)
-    buf := make([]byte, len(ctext))
-    decrypter.CryptBlocks(buf, ctext)
-    cmsg := PKCS5UnPadding(buf)
+	defer func() {
+		if err := recover(); err != nil {
+			logger.Error("%v", err)
+		}
+	}()
+	decrypter := _cipher.NewCBCDecrypter(s.block, iv)
+	buf := make([]byte, len(ctext))
+	decrypter.CryptBlocks(buf, ctext)
+	cmsg := PKCS5UnPadding(buf)
 
-    msg, _ := snappy.Decode(nil, cmsg)
-    return msg
+	msg, _ := snappy.Decode(nil, cmsg)
+	return msg
 }
 
 func PKCS5Padding(ciphertext []byte, blockSize int) []byte {
-    padding := blockSize - len(ciphertext)%blockSize
-    padtext := bytes.Repeat([]byte{byte(padding)}, padding)
-    return append(ciphertext, padtext...)
+	padding := blockSize - len(ciphertext)%blockSize
+	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+	return append(ciphertext, padtext...)
 }
 
 func PKCS5UnPadding(origData []byte) []byte {
-    length := len(origData)
-    unpadding := int(origData[length-1])
-    return origData[:(length - unpadding)]
+	length := len(origData)
+	unpadding := int(origData[length-1])
+	return origData[:(length - unpadding)]
 }
