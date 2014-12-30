@@ -1,19 +1,19 @@
 /*
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * Author: Justin Wong <justin.w.xd@gmail.com>
- *
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*
+* Author: Justin Wong <justin.w.xd@gmail.com>
+*
  */
 
 // buffer maintaining for goHop's udp packets
@@ -21,98 +21,133 @@
 package hop
 
 import (
-    "sort"
-    "errors"
-    "sync"
-    "time"
-)
-
-const (
-    hpBufSize = 384
-    bufferTimeout = 20 * time.Millisecond
+	"errors"
+	"sync"
+	// "runtime"
+	"sync/atomic"
+	"time"
 )
 
 type hopPacketBuffer struct {
-    buf [hpBufSize]*HopPacket
-    outQueue []*HopPacket
-    count int
-    timer *time.Timer
-    timeout time.Duration
-    flushChan chan *HopPacket
-    mutex sync.Mutex
+	buf       *bufferList
+	rate      int32
+	mutex     sync.Mutex
+	flushChan chan *HopPacket
+	newPack   chan struct{}
 }
 
 var bufFull = errors.New("Buffer Full")
 
-func newHopPacketBuffer(flushChan chan *HopPacket, timeout time.Duration) *hopPacketBuffer {
-    hb := new(hopPacketBuffer)
-    hb.count = 0
-    hb.timer = time.NewTimer(1000*time.Second)
-    hb.timer.Stop()
-    hb.flushChan = flushChan
-    hb.timeout = timeout
-    go func() {
-        for {
-            <-hb.timer.C
-            hb.FlushToChan(hb.flushChan)
-            hb.timer.Reset(hb.timeout)
-        }
-    }()
-    return hb
+func newHopPacketBuffer(flushChan chan *HopPacket) *hopPacketBuffer {
+	hb := new(hopPacketBuffer)
+	hb.buf = newBufferList()
+	hb.flushChan = flushChan
+	hb.newPack = make(chan struct{}, 9184)
+	go func() {
+		for {
+			p := hb.Pop()
+			if p != nil {
+				hb.flushChan <- p
+			}
+		}
+	}()
+	return hb
 }
 
 func (hb *hopPacketBuffer) Push(p *HopPacket) {
-    defer hb.mutex.Unlock()
-    hb.mutex.Lock()
-
-    hb.timer.Reset(hb.timeout)
-
-    hb.buf[hb.count] = p
-    hb.count += 1
-    if hb.count >= hpBufSize {
-        // logger.Warning("buffer full, flushing")
-        hb._flush()
-    }
+	atomic.AddInt32(&hb.rate, 1)
+	hb.buf.Push(int64(p.Seq), p)
+	hb.newPack <- struct{}{}
 }
 
-func (hb *hopPacketBuffer) Len() int { return len(hb.outQueue) }
-
-func (hb *hopPacketBuffer) Less(i, j int) bool {
-    a, b := hb.outQueue[i], hb.outQueue[j]
-    return a.Seq < b.Seq
+func (hb *hopPacketBuffer) Pop() *HopPacket {
+	<-hb.newPack
+	r := int(hb.rate & 0x10)
+	if hb.buf.count < 8+r {
+		time.Sleep(time.Duration(r*20+50) * time.Microsecond)
+		hb.rate = hb.rate >> 1
+	}
+	p := hb.buf.Pop().(*HopPacket)
+	return p
 }
 
-func (hb *hopPacketBuffer) Swap(i, j int) {
-    hb.outQueue[i], hb.outQueue[j] = hb.outQueue[j], hb.outQueue[i]
+type bufferElem struct {
+	p    interface{}
+	key  int64
+	next *bufferElem
+	prev *bufferElem
 }
 
-
-func (hb *hopPacketBuffer) Flush() {
-    defer hb.mutex.Unlock()
-    hb.mutex.Lock()
-    hb._flushToChan(hb.flushChan)
+type bufferList struct {
+	count       int
+	head        *bufferElem
+	mutex       sync.Mutex
+	_lastpopped int64
 }
 
-func (hb *hopPacketBuffer) _flush() {
-    hb._flushToChan(hb.flushChan)
+func newBufferList() *bufferList {
+	l := new(bufferList)
+	l.count = 0
+	l._lastpopped = -1
+	l.head = new(bufferElem)
+	l.head.p = nil
+	l.head.next = l.head
+	l.head.prev = l.head
+	return l
 }
 
-func (hb *hopPacketBuffer) _flushToChan(c chan *HopPacket) {
-    if hopFrager != nil {
-        hb.outQueue = hopFrager.reAssemble(hb.buf[:hb.count])
-    } else {
-        hb.outQueue = hb.buf[:hb.count]
-    }
+func (l *bufferList) Push(key int64, p interface{}) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
 
-    sort.Sort(hb)
-    for _, p := range(hb.outQueue) {
-        c <- p
-    }
-    hb.count = 0
+	elem := &bufferElem{p, key, nil, nil}
+
+	uninserted := true
+	i := 0
+	for cur := l.head.prev; cur != l.head; cur = cur.prev {
+		// if i > 0 {
+		//     logger.Debug("%d/%d", i, l.count)
+		// }
+		if cur.key < key {
+			uninserted = false
+			elem.next = cur.next
+			elem.prev = cur
+			cur.next = elem
+			elem.next.prev = elem
+			break
+		}
+		i++
+	}
+
+	if uninserted {
+		elem.next = l.head.next
+		elem.prev = l.head
+		l.head.next = elem
+		elem.next.prev = elem
+	}
+
+	l.count++
 }
 
-func (hb *hopPacketBuffer) FlushToChan(c chan *HopPacket) {
-    defer hb.mutex.Unlock()
-    hb.mutex.Lock()
-    hb._flushToChan(c)
+func (l *bufferList) Pop() interface{} {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	if l.count == 0 {
+		logger.Warning("Error")
+		return nil
+	}
+
+	elem := l.head.next
+	l.head.next = elem.next
+	elem.next.prev = l.head
+	l.count--
+	// delta := elem.key - l._lastpopped
+	// if delta < 0 {
+	//     // logger.Debug("%d, %d", elem.key, l._lastpopped)
+	//     ok = false
+	// } else {
+	//     ok = true
+	// }
+	// l._lastpopped = elem.key
+	return elem.p
 }
