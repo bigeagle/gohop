@@ -61,8 +61,12 @@ type HopServer struct {
 	// channel to put packets to send through udpsocket
 	toNet []chan *udpPacket
 	// channel to put frames read from tun/tap device
-	fromIface    chan []byte
-	toIface      chan *HopPacket
+	fromIface chan []byte
+	// channel to put frames to send to tun/tap device
+	toIface chan *HopPacket
+
+	pktHandle map[byte](func(*udpPacket, *HopPacket))
+
 	_lock        sync.RWMutex
 	_chanBufSize int
 }
@@ -219,7 +223,7 @@ func (srv *HopServer) listenAndServe(addr string, port string, idx int) {
 func (srv *HopServer) forwardFrames() {
 
 	// packet map
-	pktHandle := map[byte](func(*udpPacket, *HopPacket)){
+	srv.pktHandle = map[byte](func(*udpPacket, *HopPacket)){
 		HOP_FLG_PSH:               srv.handleKnock,
 		HOP_FLG_PSH | HOP_FLG_ACK: srv.handleHeartbeatAck,
 		HOP_FLG_HSH:               srv.handleHandshake,
@@ -246,21 +250,29 @@ func (srv *HopServer) forwardFrames() {
 			}
 
 		case packet := <-srv.fromNet:
-
-			hPack, err := unpackHopPacket(packet.data)
-			if err == nil {
-				// logger.Debug("New UDP Packet from: %v", packet.addr)
-
-				if handle_func, ok := pktHandle[hPack.Flag]; ok {
-					handle_func(packet, hPack)
-				} else {
-					logger.Error("Unkown flag: %x", hPack.Flag)
-				}
-			} else {
-				logger.Error(err.Error())
-			}
+			srv.handlePacket(packet)
 		}
 
+	}
+}
+
+func (srv *HopServer) handlePacket(packet *udpPacket) {
+	defer func() {
+		if err := recover(); err != nil {
+			logger.Error("handleFunction failed: %v, packet addr:%v", err, packet.addr)
+		}
+	}()
+
+	hPack, err := unpackHopPacket(packet.data)
+	if err == nil {
+		logger.Debug("New UDP Packet [%v] from : %v", hPack.Flag, packet.addr)
+		if handle_func, ok := srv.pktHandle[hPack.Flag]; ok {
+			handle_func(packet, hPack)
+		} else {
+			logger.Error("Unkown flag: %x", hPack.Flag)
+		}
+	} else {
+		logger.Error(err.Error())
 	}
 }
 
