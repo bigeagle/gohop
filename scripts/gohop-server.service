@@ -1,0 +1,11 @@
+[Unit]
+Description = GoHop personal VPN server
+Requires = network.target
+After = network.target
+
+[Service]
+ExecStart = /usr/local/bin/gohop /etc/gohop/server.ini
+KillSignal = SIGTERM
+
+[Install]
+WantedBy = multi-user.target
