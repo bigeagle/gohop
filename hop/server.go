@@ -425,10 +425,11 @@ func (srv *HopServer) handleDataPacket(u *udpPacket, hp *HopPacket) {
 	sid := uint64(hp.Sid)
 	sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
 
-	if peer, ok := srv.peers[sid]; ok {
+	if hpeer, ok := srv.peers[sid]; ok && hpeer.state == HOP_STAT_WORKING {
 		// logger.Debug("n peer addrs: %v", len(peer._addrs_lst))
 		// peer.insertAddr(u.addr, u.channel)
-		peer.recvBuffer.Push(hp)
+		hpeer.recvBuffer.Push(hp)
+		hpeer.lastSeenTime = time.Now()
 	}
 }
 
