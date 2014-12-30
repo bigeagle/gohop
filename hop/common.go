@@ -19,7 +19,7 @@
 package hop
 
 import (
-	"../logging"
+    "../logging"
 )
 
 var logger = logging.GetLogger()
@@ -27,5 +27,5 @@ var logger = logging.GetLogger()
 var MTU = 1400
 
 const (
-	IFACE_BUFSIZE = 2000
+    IFACE_BUFSIZE = 2000
 )
