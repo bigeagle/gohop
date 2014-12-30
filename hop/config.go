@@ -21,18 +21,19 @@ type HopServerConfig struct {
 
 // Client Config
 type HopClientConfig struct {
-	Server           string
-	HopStart         int
-	HopEnd           int
-	Key              string
-	MTU              int
-	FixMSS           bool
-	Local            bool
-	MorphMethod      string
-	Redirect_gateway bool
-	Net_gateway      []string // Deprecated
-	Up               string
-	Down             string
+	Server             string
+	HopStart           int
+	HopEnd             int
+	Key                string
+	MTU                int
+	FixMSS             bool
+	Local              bool
+	MorphMethod        string
+	Redirect_gateway   bool
+	Net_gateway        []string // Deprecated
+	Up                 string
+	Down               string
+	Heartbeat_interval int
 }
 
 type HopConfig struct {

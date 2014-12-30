@@ -133,7 +133,7 @@ func NewServer(cfg HopServerConfig) error {
 		idx++
 	}
 
-	go hopServer.peerTimeoutWatcher()	
+	go hopServer.peerTimeoutWatcher()
 	logger.Debug("Recieving iface frames")
 
 	// handle interface
@@ -221,6 +221,7 @@ func (srv *HopServer) forwardFrames() {
 	// packet map
 	pktHandle := map[byte](func(*udpPacket, *HopPacket)){
 		HOP_FLG_PSH:               srv.handleKnock,
+		HOP_FLG_PSH | HOP_FLG_ACK: srv.handleHeartbeatAck,
 		HOP_FLG_HSH:               srv.handleHandshake,
 		HOP_FLG_HSH | HOP_FLG_ACK: srv.handleHandshakeAck,
 		HOP_FLG_DAT:               srv.handleDataPacket,
@@ -318,8 +319,24 @@ func (srv *HopServer) handleKnock(u *udpPacket, hp *HopPacket) {
 		srv.peers[sid] = hpeer
 	} else {
 		hpeer.insertAddr(u.addr, u.channel)
+		if hpeer.state == HOP_STAT_WORKING {
+			srv.toClient(hpeer, HOP_FLG_PSH|HOP_FLG_ACK, []byte{0}, true)
+		}
 	}
 
+	hpeer.lastSeenTime = time.Now()
+}
+
+func (srv *HopServer) handleHeartbeatAck(u *udpPacket, hp *HopPacket) {
+	sid := uint64(binary.BigEndian.Uint32(hp.payload[:4]))
+	sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
+
+	hpeer, ok := srv.peers[sid]
+	if !ok {
+		return
+	}
+
+	hpeer.lastSeenTime = time.Now()
 }
 
 func (srv *HopServer) handleHandshake(u *udpPacket, hp *HopPacket) {
@@ -342,9 +359,11 @@ func (srv *HopServer) handleHandshake(u *udpPacket, hp *HopPacket) {
 		delete(srv.peers, sid)
 	} else {
 		hpeer.ip = cltIP.IP.To4()
+		mask, _ := cltIP.Mask.Size()
 		buf := bytes.NewBuffer(make([]byte, 0, 8))
+		buf.WriteByte(HOP_PROTO_VERSION)
 		buf.Write([]byte(hpeer.ip))
-		buf.Write([]byte(cltIP.Mask))
+		buf.WriteByte(byte(mask))
 		key := ip4_uint64(hpeer.ip)
 
 		logger.Debug("assign address %s, route key %d", cltIP, key)
@@ -417,8 +436,10 @@ func (srv *HopServer) deletePeer(sid uint64) {
 
 	key := ip4_uint64(hpeer.ip)
 	srv.ippool.relase(hpeer.ip)
+
 	delete(srv.peers, sid)
 	delete(srv.peers, key)
+
 	srv.toClient(hpeer, HOP_FLG_FIN|HOP_FLG_ACK, []byte{}, false)
 }
 
@@ -435,23 +456,38 @@ func (srv *HopServer) cleanUp() {
 }
 
 func (srv *HopServer) peerTimeoutWatcher() {
+	timeout := time.Second * time.Duration(srv.cfg.PeerTimeout)
+	interval := time.Second * time.Duration(srv.cfg.PeerTimeout/2)
+
 	for {
 		if srv.cfg.PeerTimeout <= 0 {
 			return
 		}
-		time.Sleep(time.Minute)
-		count := 0
-		timeout := time.Second * time.Duration(srv.cfg.PeerTimeout)
+		time.Sleep(interval)
 		for sid, hpeer := range srv.peers {
-			// logger.Debug("watch:%v", hpeer.lastConnTime)
-			if sid>>32 > 0 {
-				count++
+			// Heartbeat
+			if sid < 0x01<<32 {
+				continue
 			}
+			logger.Debug("IP: %v, sid: %v", hpeer.ip, sid)
+			srv.toClient(hpeer, HOP_FLG_PSH, []byte{}, false)
+		}
+		// count := 0
+		time.Sleep(interval)
+		for sid, hpeer := range srv.peers {
+			if sid < 0x01<<32 {
+				continue
+			}
+			logger.Debug("watch: %v", hpeer.lastSeenTime)
+			// if sid>>32 > 0 {
+			// 	count++
+			// }
 			conntime := time.Since(hpeer.lastSeenTime)
 			// logger.Debug("watch:%v %v", conntime.Seconds(), timeout.Seconds())
 			if conntime > timeout {
 				logger.Info("peer %v timeout", hpeer.ip)
 				go srv.deletePeer(sid)
+				srv.toClient(hpeer, HOP_FLG_FIN, []byte{}, false)
 			}
 		}
 		// logger.Info("Ulinks:%d", count)

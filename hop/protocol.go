@@ -51,6 +51,8 @@ const (
 	HOP_STAT_FIN                    // finishing
 
 	HOP_HDR_LEN int = 16
+
+	HOP_PROTO_VERSION byte = 0x01 // protocol version
 )
 
 type hopPacketHeader struct {

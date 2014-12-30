@@ -227,6 +227,8 @@ func (clt *HopClient) handleUDP(server string) {
 	pktHandle := map[byte](func(*net.UDPConn, *HopPacket)){
 		HOP_FLG_HSH | HOP_FLG_ACK: clt.handleHandshakeAck,
 		HOP_FLG_HSH | HOP_FLG_FIN: clt.handleHandshakeError,
+		HOP_FLG_PSH:               clt.handleHeartbeat,
+		HOP_FLG_PSH | HOP_FLG_ACK: clt.handleKnockAck,
 		HOP_FLG_DAT:               clt.handleDataPacket,
 		HOP_FLG_DAT | HOP_FLG_MFR: clt.handleDataPacket,
 		HOP_FLG_FIN | HOP_FLG_ACK: clt.handleFinishAck,
@@ -238,6 +240,20 @@ func (clt *HopClient) handleUDP(server string) {
 		n := mrand.Intn(1000)
 		time.Sleep(time.Duration(n) * time.Millisecond)
 		clt.handeshake(udpConn)
+	}()
+
+	go func() {
+		var intval time.Duration
+
+		if clt.cfg.Heartbeat_interval <= 0 {
+			intval = time.Second * 30
+		} else {
+			intval = time.Second * time.Duration(clt.cfg.Heartbeat_interval)
+		}
+		for {
+			time.Sleep(intval)
+			clt.knock(udpConn)
+		}
 	}()
 
 	// add route through net gateway
@@ -305,7 +321,7 @@ func (clt *HopClient) toServer(u *net.UDPConn, flag byte, payload []byte, noise 
 	u.Write(hp.Pack())
 }
 
-// knock server port
+// knock server port or heartbeat
 func (clt *HopClient) knock(u *net.UDPConn) {
 	clt.toServer(u, HOP_FLG_PSH, clt.sid[:], true)
 }
@@ -334,18 +350,31 @@ func (clt *HopClient) finishSession() {
 	clt.toNet <- hp
 }
 
+// heartbeat ack
+func (clt *HopClient) handleKnockAck(u *net.UDPConn, hp *HopPacket) {
+	return
+}
+
+// heartbeat ack
+func (clt *HopClient) handleHeartbeat(u *net.UDPConn, hp *HopPacket) {
+	logger.Debug("Heartbeat from server")
+	clt.toServer(u, HOP_FLG_PSH|HOP_FLG_ACK, clt.sid[:], true)
+}
+
 // handle handeshake ack
 func (clt *HopClient) handleHandshakeAck(u *net.UDPConn, hp *HopPacket) {
 	if atomic.LoadInt32(&clt.state) == HOP_STAT_HANDSHAKE {
-		_ip, _net, _mask := make([]byte, 4), make([]byte, 4), make([]byte, 4)
-		copy(_ip, hp.payload[:4])
-		copy(_net, hp.payload[:4])
-		copy(_mask, hp.payload[4:8])
-		logger.Debug("%v", hp.payload)
-		_net[3] = 0
+		proto_version := hp.payload[0]
+		if proto_version != HOP_PROTO_VERSION {
+			logger.Error("Incompatible protocol version!")
+			os.Exit(1)
+		}
 
-		ip := net.IP(_ip)
-		subnet := &net.IPNet{_net, _mask}
+		by := hp.payload[1:6]
+		ipStr := fmt.Sprintf("%d.%d.%d.%d/%d", by[0], by[1], by[2], by[3], by[4])
+
+		ip, subnet, _ := net.ParseCIDR(ipStr)
+
 		setTunIP(clt.iface, ip, subnet)
 		if clt.cfg.FixMSS {
 			fixMSS(clt.iface.Name(), false)
