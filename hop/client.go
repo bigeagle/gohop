@@ -61,8 +61,9 @@ type HopClient struct {
 	// channel to send frames to net
 	toNet chan *HopPacket
 
-	handshakeDone chan byte
-	finishAck     chan byte
+	handshakeDone  chan struct{}
+	handshakeError chan struct{}
+	finishAck      chan byte
 	// state variable to ensure serverRoute added
 	srvRoute int32
 	// routes need to be clean in the end
@@ -91,7 +92,8 @@ func NewClient(cfg HopClientConfig) error {
 	hopClient.recvBuf = newHopPacketBuffer(hopClient.toIface)
 	hopClient.cfg = cfg
 	hopClient.state = HOP_STAT_INIT
-	hopClient.handshakeDone = make(chan byte)
+	hopClient.handshakeDone = make(chan struct{})
+	hopClient.handshakeError = make(chan struct{})
 	hopClient.finishAck = make(chan byte)
 	hopClient.srvRoute = 0
 	hopClient.routes = make([]string, 0, 1024)
@@ -126,9 +128,18 @@ func NewClient(cfg HopClientConfig) error {
 	}
 
 	// wait until handshake done
-	res := <-hopClient.handshakeDone
-	if res == 0 {
-		return errors.New("Handshake Fail")
+wait_handshake:
+	for {
+		select {
+		case <-hopClient.handshakeDone:
+			logger.Info("Handshake Success")
+			break wait_handshake
+		case <-hopClient.handshakeError:
+			return errors.New("Handshake Fail")
+		case <-time.After(3 * time.Second):
+			logger.Info("Handshake Timeout")
+			atomic.CompareAndSwapInt32(&hopClient.state, HOP_STAT_HANDSHAKE, HOP_STAT_INIT)
+		}
 	}
 
 	routeDone := make(chan bool)
@@ -235,11 +246,19 @@ func (clt *HopClient) handleUDP(server string) {
 		HOP_FLG_FIN:               clt.handleFinish,
 	}
 
-	clt.knock(udpConn)
 	go func() {
-		n := mrand.Intn(1000)
-		time.Sleep(time.Duration(n) * time.Millisecond)
-		clt.handeshake(udpConn)
+		for {
+			clt.knock(udpConn)
+			n := mrand.Intn(1000)
+			time.Sleep(time.Duration(n) * time.Millisecond)
+			clt.handeshake(udpConn)
+			select {
+			case <-clt.handshakeDone:
+				return
+			case <-time.After(5 * time.Second):
+				logger.Debug("Handshake timeout, retry")
+			}
+		}
 	}()
 
 	go func() {
@@ -252,7 +271,9 @@ func (clt *HopClient) handleUDP(server string) {
 		}
 		for {
 			time.Sleep(intval)
-			clt.knock(udpConn)
+			if clt.state == HOP_STAT_WORKING {
+				clt.knock(udpConn)
+			}
 		}
 	}()
 
@@ -290,7 +311,7 @@ func (clt *HopClient) handleUDP(server string) {
 		//logger.Debug("New UDP Packet, len: %d", n)
 		if err != nil {
 			logger.Error(err.Error())
-			return
+			continue
 		}
 
 		hp, err := unpackHopPacket(buf[:n])
@@ -384,7 +405,7 @@ func (clt *HopClient) handleHandshakeAck(u *net.UDPConn, hp *HopPacket) {
 			logger.Error("Client state not expected: %d", clt.state)
 		}
 		logger.Info("Session Initialized")
-		clt.handshakeDone <- 1
+		close(clt.handshakeDone)
 	}
 
 	logger.Debug("Handshake Ack to Server")
@@ -393,7 +414,7 @@ func (clt *HopClient) handleHandshakeAck(u *net.UDPConn, hp *HopPacket) {
 
 // handle handshake fail
 func (clt *HopClient) handleHandshakeError(u *net.UDPConn, hp *HopPacket) {
-	clt.handshakeDone <- 0
+	close(clt.handshakeError)
 }
 
 // handle data packet

@@ -417,8 +417,12 @@ func (srv *HopServer) handleHandshakeAck(u *udpPacket, hp *HopPacket) {
 	}
 	logger.Debug("Client Handshake Done")
 	logger.Info("Client %d Connected", sid)
-	atomic.StoreInt32(&hpeer.state, HOP_STAT_WORKING)
-	hpeer.hsDone <- 1
+	if ok = atomic.CompareAndSwapInt32(&hpeer.state, HOP_STAT_HANDSHAKE, HOP_STAT_WORKING); ok {
+		hpeer.hsDone <- 1
+	} else {
+		logger.Warning("Invalid peer state: %v", hpeer.ip)
+		srv.kickOutPeer(sid)
+	}
 }
 
 func (srv *HopServer) handleDataPacket(u *udpPacket, hp *HopPacket) {
@@ -441,6 +445,17 @@ func (srv *HopServer) handleFinish(u *udpPacket, hp *HopPacket) {
 	srv.deletePeer(sid)
 }
 
+func (srv *HopServer) kickOutPeer(sid uint64) {
+	hpeer, ok := srv.peers[sid]
+	if !ok {
+		return
+	}
+	srv.deletePeer(sid)
+	srv.toClient(hpeer, HOP_FLG_FIN, []byte{}, false)
+	srv.toClient(hpeer, HOP_FLG_FIN, []byte{}, false)
+	srv.toClient(hpeer, HOP_FLG_FIN, []byte{}, false)
+}
+
 func (srv *HopServer) deletePeer(sid uint64) {
 	hpeer, ok := srv.peers[sid]
 	if !ok {
@@ -454,6 +469,7 @@ func (srv *HopServer) deletePeer(sid uint64) {
 	delete(srv.peers, key)
 
 	srv.toClient(hpeer, HOP_FLG_FIN|HOP_FLG_ACK, []byte{}, false)
+	srv.toClient(hpeer, HOP_FLG_FIN|HOP_FLG_ACK, []byte{}, false)
 }
 
 func (srv *HopServer) cleanUp() {
@@ -461,6 +477,8 @@ func (srv *HopServer) cleanUp() {
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 	<-c
 	for _, hpeer := range srv.peers {
+		srv.toClient(hpeer, HOP_FLG_FIN|HOP_FLG_ACK, []byte{}, false)
+		srv.toClient(hpeer, HOP_FLG_FIN|HOP_FLG_ACK, []byte{}, false)
 		srv.toClient(hpeer, HOP_FLG_FIN, []byte{}, false)
 		srv.toClient(hpeer, HOP_FLG_FIN, []byte{}, false)
 	}
@@ -499,8 +517,7 @@ func (srv *HopServer) peerTimeoutWatcher() {
 			// logger.Debug("watch:%v %v", conntime.Seconds(), timeout.Seconds())
 			if conntime > timeout {
 				logger.Info("peer %v timeout", hpeer.ip)
-				go srv.deletePeer(sid)
-				srv.toClient(hpeer, HOP_FLG_FIN, []byte{}, false)
+				go srv.kickOutPeer(sid)
 			}
 		}
 		// logger.Info("Ulinks:%d", count)
