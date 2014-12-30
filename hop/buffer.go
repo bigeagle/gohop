@@ -21,25 +21,25 @@
 package hop
 
 import (
-    "sort"
     "errors"
+    "sort"
     "sync"
     "time"
 )
 
 const (
-    hpBufSize = 384
+    hpBufSize     = 384
     bufferTimeout = 20 * time.Millisecond
 )
 
 type hopPacketBuffer struct {
-    buf [hpBufSize]*HopPacket
-    outQueue []*HopPacket
-    count int
-    timer *time.Timer
-    timeout time.Duration
+    buf       [hpBufSize]*HopPacket
+    outQueue  []*HopPacket
+    count     int
+    timer     *time.Timer
+    timeout   time.Duration
     flushChan chan *HopPacket
-    mutex sync.Mutex
+    mutex     sync.Mutex
 }
 
 var bufFull = errors.New("Buffer Full")
@@ -47,7 +47,7 @@ var bufFull = errors.New("Buffer Full")
 func newHopPacketBuffer(flushChan chan *HopPacket, timeout time.Duration) *hopPacketBuffer {
     hb := new(hopPacketBuffer)
     hb.count = 0
-    hb.timer = time.NewTimer(1000*time.Second)
+    hb.timer = time.NewTimer(1000 * time.Second)
     hb.timer.Stop()
     hb.flushChan = flushChan
     hb.timeout = timeout
@@ -86,7 +86,6 @@ func (hb *hopPacketBuffer) Swap(i, j int) {
     hb.outQueue[i], hb.outQueue[j] = hb.outQueue[j], hb.outQueue[i]
 }
 
-
 func (hb *hopPacketBuffer) Flush() {
     defer hb.mutex.Unlock()
     hb.mutex.Lock()
@@ -105,7 +104,7 @@ func (hb *hopPacketBuffer) _flushToChan(c chan *HopPacket) {
     }
 
     sort.Sort(hb)
-    for _, p := range(hb.outQueue) {
+    for _, p := range hb.outQueue {
         c <- p
     }
     hb.count = 0

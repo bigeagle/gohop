@@ -19,11 +19,15 @@
 package main
 
 import (
+    "./hop"
+    "./logging"
     "flag"
     "fmt"
-    "github.com/bigeagle/gohop/hop"
-    "github.com/bigeagle/gohop/logging"
+    "io"
     "os"
+    "runtime"
+    "time"
+    "path/filepath"
 )
 
 var srvMode, cltMode, debug, getVersion bool
@@ -31,10 +35,13 @@ var cfgFile string
 
 var VERSION = "0.3.2-dev"
 
-func main() {
+func init() {
     flag.BoolVar(&getVersion, "version", false, "Get Version info")
     flag.BoolVar(&debug, "debug", false, "Provide debug info")
     flag.StringVar(&cfgFile, "config", "", "configfile")
+}
+
+func main() {
     flag.Parse()
 
     if getVersion {
@@ -60,17 +67,52 @@ func main() {
     logger.Info("using config file: %v", cfgFile)
 
     icfg, err := hop.ParseHopConfig(cfgFile)
-    logger.Debug("%v", icfg)
+    //logger.Debug("%v", icfg)
     checkerr(err)
+
+    // 设置可使用的最大核心数
+    runtime.GOMAXPROCS(runtime.NumCPU() - 1)
+    fmt.Printf("/** server start **/\nUse %d/%d CPU cores\n", runtime.GOMAXPROCS(-1), runtime.NumCPU())
 
     switch cfg := icfg.(type) {
     case hop.HopServerConfig:
-        err := hop.NewServer(cfg)
+        addWatchFile(cfg.RouteFile, cfg.RouteConfig, time.Second*60)
+        err := hop.NewServer(&cfg)
         checkerr(err)
     case hop.HopClientConfig:
-        err := hop.NewClient(cfg)
+        err := hop.NewClient(&cfg)
         checkerr(err)
     default:
         logger.Error("Invalid config file")
     }
+}
+
+/*
+配置文件监控方法
+不能放到其他包中。避免非启动时调用。
+*/
+func addWatchFile(filename string, callback func(r io.Reader), st time.Duration) {
+    logger := logging.GetLogger()
+    modtime := int64(0)
+    filename, _ = filepath.Abs(filename)
+    logger.Info("addWatchFile : " + filename)
+    setF := func() {
+        if f, err := os.Open(filename); err != nil {
+            logger.Error("config file " + filename + " error : " + err.Error())
+        } else if fi, err := f.Stat(); err != nil {
+            logger.Error("config file " + filename + " error : " + err.Error())
+        } else if mt := fi.ModTime().Unix(); mt != modtime {
+            logger.Debug("load config file : " + filename + " begin !")
+            modtime = mt
+            callback(f)
+            logger.Debug("load config file : " + filename + " finish !")
+        }
+    }
+    setF()
+    go func() {
+        for {
+            time.Sleep(st)
+            setF()
+        }
+    }()
 }

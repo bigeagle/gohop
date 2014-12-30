@@ -47,8 +47,7 @@ func newTun(name string) (iface *water.Interface, err error) {
 
     sargs := fmt.Sprintf("link set dev %s up mtu %d qlen 100", iface.Name(), MTU)
     args := strings.Split(sargs, " ")
-    cmd := exec.Command("ip", args...)
-    logger.Info("ip %s", sargs)
+    cmd := texec("ip", args...)
     err = cmd.Run()
     if err != nil {
         return nil, err
@@ -60,7 +59,7 @@ func newTun(name string) (iface *water.Interface, err error) {
 func setTunIP(iface *water.Interface, ip net.IP, subnet *net.IPNet) (err error) {
     ip = ip.To4()
     logger.Debug("%v", ip)
-    if ip[3] % 2 == 0 {
+    if ip[3]%2 == 0 {
         return invalidAddr
     }
 
@@ -71,8 +70,7 @@ func setTunIP(iface *water.Interface, ip net.IP, subnet *net.IPNet) (err error) 
 
     sargs := fmt.Sprintf("addr add dev %s local %s peer %s", iface.Name(), ip, peer)
     args := strings.Split(sargs, " ")
-    cmd := exec.Command("ip", args...)
-    logger.Info("ip %s", sargs)
+    cmd := texec("ip", args...)
     err = cmd.Run()
     if err != nil {
         return err
@@ -80,8 +78,7 @@ func setTunIP(iface *water.Interface, ip net.IP, subnet *net.IPNet) (err error) 
 
     sargs = fmt.Sprintf("route add %s via %s dev %s", subnet, peer, iface.Name())
     args = strings.Split(sargs, " ")
-    cmd = exec.Command("ip", args...)
-    logger.Info("ip %s", sargs)
+    cmd = texec("ip", args...)
     err = cmd.Run()
     return err
 }
@@ -142,13 +139,11 @@ func getNetGateway() (gw, dev string, err error) {
     return "", "", errors.New("No default gateway found")
 }
 
-
 // add route
 func addRoute(dest, nextHop, iface string) {
 
     scmd := fmt.Sprintf("ip -4 r a %s via %s dev %s", dest, nextHop, iface)
-    cmd := exec.Command("bash", "-c", scmd)
-    logger.Info(scmd)
+    cmd := texec("bash", "-c", scmd)
     err := cmd.Run()
 
     if err != nil {
@@ -161,8 +156,7 @@ func addRoute(dest, nextHop, iface string) {
 func delRoute(dest string) {
     sargs := fmt.Sprintf("-4 route del %s", dest)
     args := strings.Split(sargs, " ")
-    cmd := exec.Command("ip", args...)
-    logger.Info("ip %s", sargs)
+    cmd := texec("ip", args...)
     err := cmd.Run()
 
     if err != nil {
@@ -173,12 +167,11 @@ func delRoute(dest string) {
 // redirect default gateway
 func redirectGateway(iface, gw string) error {
     subnets := []string{"0.0.0.0/1", "128.0.0.0/1"}
-    logger.Info("Redirecting Gateway")
+    logger.Debug("Redirecting Gateway")
     for _, subnet := range subnets {
         sargs := fmt.Sprintf("-4 route add %s via %s dev %s", subnet, gw, iface)
         args := strings.Split(sargs, " ")
-        cmd := exec.Command("ip", args...)
-        logger.Info("ip %s", sargs)
+        cmd := texec("ip", args...)
         err := cmd.Run()
 
         if err != nil {
@@ -188,20 +181,19 @@ func redirectGateway(iface, gw string) error {
     return nil
 }
 
-
 // redirect ports to one
 func redirectPort(from, to string) error {
     //iptables -t nat -A PREROUTING -p udp -m udp --dport 40000:41000 -j REDIRECT --to-ports 1234
-    logger.Info("Port Redirecting")
+    logger.Debug("Port Redirecting")
     sargs := fmt.Sprintf("-t nat -A PREROUTING -p udp -m udp --dport %s -j REDIRECT --to-ports %s", from, to)
     args := strings.Split(sargs, " ")
-    cmd := exec.Command("iptables", args...)
+    cmd := texec("iptables", args...)
     err := cmd.Run()
 
     if err != nil {
         return err
     }
-    cmd = exec.Command("ip6tables", args...)
+    cmd = texec("ip6tables", args...)
     err = cmd.Run()
 
     if err != nil {
@@ -210,20 +202,19 @@ func redirectPort(from, to string) error {
     return nil
 }
 
-
 // undo redirect ports
 func unredirectPort(from, to string) error {
     //iptables -t nat -D PREROUTING -p udp -m udp --dport 40000:41000 -j REDIRECT --to-ports 1234
-    logger.Info("Clear Port Redirecting")
+    logger.Debug("Clear Port Redirecting")
     sargs := fmt.Sprintf("-t nat -D PREROUTING -p udp -m udp --dport %s -j REDIRECT --to-ports %s", from, to)
     args := strings.Split(sargs, " ")
-    cmd := exec.Command("iptables", args...)
+    cmd := texec("iptables", args...)
     err := cmd.Run()
 
     if err != nil {
         return err
     }
-    cmd = exec.Command("ip6tables", args...)
+    cmd = texec("ip6tables", args...)
     err = cmd.Run()
 
     if err != nil {
@@ -234,7 +225,7 @@ func unredirectPort(from, to string) error {
 
 func fixMSS(iface string, is_server bool) error {
     mss := MTU - 40
-    logger.Info("Fix MSS with iptables to %d", mss)
+    logger.Debug("Fix MSS with iptables to %d", mss)
     io := "o"
     if is_server {
         io = "i"
@@ -242,7 +233,7 @@ func fixMSS(iface string, is_server bool) error {
 
     sargs := fmt.Sprintf("-I FORWARD -%s %s -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss %d", io, iface, mss)
     args := strings.Split(sargs, " ")
-    cmd := exec.Command("iptables", args...)
+    cmd := texec("iptables", args...)
     err := cmd.Run()
 
     if err != nil {
@@ -253,7 +244,7 @@ func fixMSS(iface string, is_server bool) error {
 
 func clearMSS(iface string, is_server bool) error {
     mss := MTU - 40
-    logger.Info("Clean MSS fix")
+    logger.Debug("Clean MSS fix")
     io := "o"
 
     if is_server {
@@ -262,7 +253,7 @@ func clearMSS(iface string, is_server bool) error {
     sargs := fmt.Sprintf("-D FORWARD -%s %s -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss %d", io, iface, mss)
 
     args := strings.Split(sargs, " ")
-    cmd := exec.Command("iptables", args...)
+    cmd := texec("iptables", args...)
     err := cmd.Run()
 
     if err != nil {
@@ -270,4 +261,13 @@ func clearMSS(iface string, is_server bool) error {
     }
 
     return nil
+}
+
+func texec(name string, arg ...string) *exec.Cmd {
+    out := "EXEC:" + name
+    for _, s := range arg {
+        out += " " + s
+    }
+    logger.Debug(out)
+    return exec.Command(name, arg...)
 }

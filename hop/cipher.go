@@ -22,6 +22,7 @@ import (
     "bytes"
     "crypto/aes"
     _cipher "crypto/cipher"
+    "crypto/md5"
     "crypto/rand"
 )
 
@@ -33,8 +34,9 @@ const cipherBlockSize = 16
 
 func newHopCipher(key []byte) (*hopCipher, error) {
     s := new(hopCipher)
-    key = PKCS5Padding(key, cipherBlockSize)
-    block, err := aes.NewCipher(key)
+    // key = PKCS5Padding(key, cipherBlockSize)
+    key1 := md5.Sum(key)
+    block, err := aes.NewCipher(key1[:])
     if err != nil {
         return nil, err
     }
@@ -55,7 +57,7 @@ func (s *hopCipher) encrypt(msg []byte) []byte {
 }
 
 func (s *hopCipher) decrypt(iv []byte, ctext []byte) []byte {
-    defer func(){
+    defer func() {
         if err := recover(); err != nil {
             logger.Error("%v", err)
         }

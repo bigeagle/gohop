@@ -19,7 +19,7 @@
 package hop
 
 import (
-    "github.com/bigeagle/gohop/logging"
+    "../logging"
 )
 
 var logger = logging.GetLogger()
