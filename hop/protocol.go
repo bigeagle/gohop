@@ -30,6 +30,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const (
@@ -183,16 +184,17 @@ func newhUDPAddr(a *net.UDPAddr) *hUDPAddr {
 
 // gohop Peer is a record of a peer's available UDP addrs
 type HopPeer struct {
-	id         uint64
-	ip         net.IP
-	addrs      map[[6]byte]int
-	_addrs_lst []*hUDPAddr // i know it's ugly!
-	seq        uint32
-	state      int32
-	hsDone     chan byte
-	recvBuffer *hopPacketBuffer
-	srv        *HopServer
-	_lock      sync.RWMutex
+	id           uint64
+	ip           net.IP
+	addrs        map[[6]byte]int
+	_addrs_lst   []*hUDPAddr // i know it's ugly!
+	seq          uint32
+	state        int32
+	hsDone       chan byte			// Handshake done
+	recvBuffer   *hopPacketBuffer
+	srv          *HopServer
+	_lock        sync.RWMutex
+	lastSeenTime time.Time
 }
 
 func newHopPeer(id uint64, srv *HopServer, addr *net.UDPAddr, idx int) *HopPeer {

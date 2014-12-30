@@ -133,6 +133,7 @@ func NewServer(cfg HopServerConfig) error {
 		idx++
 	}
 
+	go hopServer.peerTimeoutWatcher()	
 	logger.Debug("Recieving iface frames")
 
 	// handle interface
@@ -405,6 +406,10 @@ func (srv *HopServer) handleFinish(u *udpPacket, hp *HopPacket) {
 	sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
 	logger.Info("releasing client %v, sid: %d", u.addr, sid)
 
+	srv.deletePeer(sid)
+}
+
+func (srv *HopServer) deletePeer(sid uint64) {
 	hpeer, ok := srv.peers[sid]
 	if !ok {
 		return
@@ -427,4 +432,28 @@ func (srv *HopServer) cleanUp() {
 	}
 	clearMSS(srv.iface.Name(), true)
 	os.Exit(0)
+}
+
+func (srv *HopServer) peerTimeoutWatcher() {
+	for {
+		if srv.cfg.PeerTimeout <= 0 {
+			return
+		}
+		time.Sleep(time.Minute)
+		count := 0
+		timeout := time.Second * time.Duration(srv.cfg.PeerTimeout)
+		for sid, hpeer := range srv.peers {
+			// logger.Debug("watch:%v", hpeer.lastConnTime)
+			if sid>>32 > 0 {
+				count++
+			}
+			conntime := time.Since(hpeer.lastSeenTime)
+			// logger.Debug("watch:%v %v", conntime.Seconds(), timeout.Seconds())
+			if conntime > timeout {
+				logger.Info("peer %v timeout", hpeer.ip)
+				go srv.deletePeer(sid)
+			}
+		}
+		// logger.Info("Ulinks:%d", count)
+	}
 }
