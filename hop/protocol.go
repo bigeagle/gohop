@@ -192,7 +192,7 @@ type HopPeer struct {
 	_addrs_lst   []*hUDPAddr // i know it's ugly!
 	seq          uint32
 	state        int32
-	hsDone       chan byte			// Handshake done
+	hsDone       chan struct{} // Handshake done
 	recvBuffer   *hopPacketBuffer
 	srv          *HopServer
 	_lock        sync.RWMutex

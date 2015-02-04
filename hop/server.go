@@ -382,7 +382,7 @@ func (srv *HopServer) handleHandshake(u *udpPacket, hp *HopPacket) {
 		srv.peers[key] = hpeer
 		atomic.StoreInt32(&hpeer.state, HOP_STAT_HANDSHAKE)
 		srv.toClient(hpeer, HOP_FLG_HSH|HOP_FLG_ACK, buf.Bytes(), true)
-		hpeer.hsDone = make(chan byte)
+		hpeer.hsDone = make(chan struct{})
 		go func() {
 			for i := 0; i < 5; i++ {
 				select {
@@ -418,7 +418,7 @@ func (srv *HopServer) handleHandshakeAck(u *udpPacket, hp *HopPacket) {
 	logger.Debug("Client Handshake Done")
 	logger.Info("Client %d Connected", sid)
 	if ok = atomic.CompareAndSwapInt32(&hpeer.state, HOP_STAT_HANDSHAKE, HOP_STAT_WORKING); ok {
-		hpeer.hsDone <- 1
+		hpeer.hsDone <- struct{}{}
 	} else {
 		logger.Warning("Invalid peer state: %v", hpeer.ip)
 		srv.kickOutPeer(sid)
