@@ -24,7 +24,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -139,6 +141,19 @@ func NewServer(cfg HopServerConfig) error {
 
 	go hopServer.peerTimeoutWatcher()
 	logger.Debug("Recieving iface frames")
+
+	// Post Up
+	if cfg.Up != "" {
+		args := strings.Split(cfg.Up, " ")
+		var cmd *exec.Cmd
+		if len(args) == 1 {
+			cmd = exec.Command(args[0])
+		} else {
+			cmd = exec.Command(args[0], args[1:]...)
+		}
+		logger.Info(cfg.Up)
+		cmd.Run()
+	}
 
 	// handle interface
 
@@ -473,6 +488,19 @@ func (srv *HopServer) deletePeer(sid uint64) {
 }
 
 func (srv *HopServer) cleanUp() {
+	// Pre Down
+	if srv.cfg.Down != "" {
+		args := strings.Split(srv.cfg.Down, " ")
+		var cmd *exec.Cmd
+		if len(args) == 1 {
+			cmd = exec.Command(args[0])
+		} else {
+			cmd = exec.Command(args[0], args[1:]...)
+		}
+		logger.Info(srv.cfg.Down)
+		cmd.Run()
+	}
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 	<-c

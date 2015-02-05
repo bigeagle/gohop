@@ -17,6 +17,8 @@ type HopServerConfig struct {
 	FixMSS      bool
 	MorphMethod string
 	PeerTimeout int
+	Up          string
+	Down        string
 }
 
 // Client Config
