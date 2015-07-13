@@ -19,10 +19,10 @@
 package hop
 
 import (
-	"github.com/bigeagle/gohop/logging"
+	. "github.com/bigeagle/gohop/internal"
 )
 
-var logger = logging.GetLogger()
+var logger = GetLogger()
 
 var MTU = 1400
 

@@ -241,6 +241,7 @@ func fixMSS(iface string, is_server bool) error {
 	sargs := fmt.Sprintf("-I FORWARD -%s %s -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss %d", io, iface, mss)
 	args := strings.Split(sargs, " ")
 	cmd := exec.Command("iptables", args...)
+	logger.Info("iptables %s", sargs)
 	err := cmd.Run()
 
 	if err != nil {

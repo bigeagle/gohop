@@ -24,7 +24,7 @@ import (
 	_cipher "crypto/cipher"
 	"crypto/rand"
 
-	"code.google.com/p/snappy-go/snappy"
+	"github.com/golang/snappy/snappy"
 )
 
 type hopCipher struct {

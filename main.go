@@ -25,7 +25,7 @@ import (
 	"runtime"
 
 	"github.com/bigeagle/gohop/hop"
-	"github.com/bigeagle/gohop/logging"
+	. "github.com/bigeagle/gohop/internal"
 )
 
 var srvMode, cltMode, debug, getVersion bool
@@ -45,8 +45,8 @@ func main() {
 		os.Exit(0)
 	}
 
-	logging.InitLogger(debug)
-	logger := logging.GetLogger()
+	InitLogger(debug)
+	logger := GetLogger()
 
 	checkerr := func(err error) {
 		if err != nil {
