@@ -24,7 +24,7 @@ import (
 	_cipher "crypto/cipher"
 	"crypto/rand"
 
-	"github.com/golang/snappy/snappy"
+	"github.com/golang/snappy"
 )
 
 type hopCipher struct {
@@ -46,7 +46,7 @@ func newHopCipher(key []byte) (*hopCipher, error) {
 
 func (s *hopCipher) encrypt(msg []byte) []byte {
 	cmsg := make([]byte, snappy.MaxEncodedLen(len(msg)))
-	cmsg, _ = snappy.Encode(cmsg, msg)
+	cmsg = snappy.Encode(cmsg, msg)
 
 	pmsg := PKCS5Padding(cmsg, cipherBlockSize)
 	buf := make([]byte, len(pmsg)+cipherBlockSize)
