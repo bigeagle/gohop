@@ -25,7 +25,6 @@ import (
 	mrand "math/rand"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
 	"strings"
 	"sync/atomic"
@@ -33,6 +32,7 @@ import (
 	"time"
 
 	"github.com/bigeagle/water"
+	"github.com/codeskyblue/go-sh"
 )
 
 var net_gateway, net_nic string
@@ -155,15 +155,21 @@ wait_handshake:
 
 	// PostUp
 	if cfg.Up != "" {
-		args := strings.Split(cfg.Up, " ")
-		var cmd *exec.Cmd
-		if len(args) == 1 {
-			cmd = exec.Command(args[0])
-		} else {
-			cmd = exec.Command(args[0], args[1:]...)
+		cargs := strings.Split(cfg.Up, " ")
+		cmd := cargs[0]
+		args := []interface{}{}
+		if len(args) > 1 {
+			for _, a := range cargs[1:] {
+				args = append(args, a)
+			}
 		}
+
+		ss := sh.NewSession()
+		ss.SetEnv("NET_GATEWAY", net_gateway).SetEnv("NET_INTERFACE", net_nic)
+		ss.SetEnv("VPN_GATEWAY", tun_peer.String()).SetEnv("VPN_INTERFACE", iface.Name())
+		ss.Command(cmd, args...)
 		logger.Info(cfg.Up)
-		cmd.Run()
+		ss.Run()
 	}
 
 	if cfg.Redirect_gateway {
@@ -448,15 +454,20 @@ func (clt *HopClient) cleanUp() {
 
 	// Pre Down
 	if clt.cfg.Down != "" {
-		args := strings.Split(clt.cfg.Down, " ")
-		var cmd *exec.Cmd
-		if len(args) == 1 {
-			cmd = exec.Command(args[0])
-		} else {
-			cmd = exec.Command(args[0], args[1:]...)
+		cargs := strings.Split(clt.cfg.Down, " ")
+		cmd := cargs[0]
+		args := []interface{}{}
+		if len(args) > 1 {
+			for _, a := range cargs[1:] {
+				args = append(args, a)
+			}
 		}
+		ss := sh.NewSession()
+		ss.SetEnv("NET_GATEWAY", net_gateway).SetEnv("NET_INTERFACE", net_nic)
+		ss.SetEnv("VPN_GATEWAY", tun_peer.String()).SetEnv("VPN_INTERFACE", clt.iface.Name())
+		ss.Command(cmd, args...)
 		logger.Info(clt.cfg.Down)
-		cmd.Run()
+		ss.Run()
 	}
 
 	if clt.cfg.FixMSS {

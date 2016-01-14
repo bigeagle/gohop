@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
 	"strings"
 	"sync"
@@ -34,6 +33,7 @@ import (
 
 	"github.com/bigeagle/water"
 	"github.com/bigeagle/water/waterutil"
+	"github.com/codeskyblue/go-sh"
 )
 
 // a udpPacket
@@ -144,15 +144,21 @@ func NewServer(cfg HopServerConfig) error {
 
 	// Post Up
 	if cfg.Up != "" {
-		args := strings.Split(cfg.Up, " ")
-		var cmd *exec.Cmd
-		if len(args) == 1 {
-			cmd = exec.Command(args[0])
-		} else {
-			cmd = exec.Command(args[0], args[1:]...)
+		cargs := strings.Split(cfg.Up, " ")
+		cmd := cargs[0]
+		args := []interface{}{}
+		if len(args) > 1 {
+			for _, a := range cargs[1:] {
+				args = append(args, a)
+			}
 		}
+
+		ss := sh.NewSession()
+		ss.SetEnv("NET_GATEWAY", net_gateway).SetEnv("NET_INTERFACE", net_nic)
+		ss.SetEnv("VPN_GATEWAY", tun_peer.String()).SetEnv("VPN_INTERFACE", iface.Name())
+		ss.Command(cmd, args...)
 		logger.Info(cfg.Up)
-		cmd.Run()
+		ss.Run()
 	}
 
 	// handle interface
@@ -490,15 +496,20 @@ func (srv *HopServer) deletePeer(sid uint64) {
 func (srv *HopServer) cleanUp() {
 	// Pre Down
 	if srv.cfg.Down != "" {
-		args := strings.Split(srv.cfg.Down, " ")
-		var cmd *exec.Cmd
-		if len(args) == 1 {
-			cmd = exec.Command(args[0])
-		} else {
-			cmd = exec.Command(args[0], args[1:]...)
+		cargs := strings.Split(srv.cfg.Down, " ")
+		cmd := cargs[0]
+		args := []interface{}{}
+		if len(args) > 1 {
+			for _, a := range cargs[1:] {
+				args = append(args, a)
+			}
 		}
+		ss := sh.NewSession()
+		ss.SetEnv("NET_GATEWAY", net_gateway).SetEnv("NET_INTERFACE", net_nic)
+		ss.SetEnv("VPN_GATEWAY", tun_peer.String()).SetEnv("VPN_INTERFACE", srv.iface.Name())
+		ss.Command(cmd, args...)
 		logger.Info(srv.cfg.Down)
-		cmd.Run()
+		ss.Run()
 	}
 
 	c := make(chan os.Signal, 1)
