@@ -31,7 +31,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bigeagle/water"
+	"github.com/songgao/water"
 )
 
 var invalidAddr = errors.New("Invalid device ip address")

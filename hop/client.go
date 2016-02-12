@@ -32,7 +32,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bigeagle/water"
+	"github.com/songgao/water"
 )
 
 var net_gateway, net_nic string

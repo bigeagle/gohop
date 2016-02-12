@@ -32,8 +32,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bigeagle/water"
-	"github.com/bigeagle/water/waterutil"
+	"github.com/songgao/water"
+	"github.com/songgao/water/waterutil"
 )
 
 // a udpPacket
