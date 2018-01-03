@@ -75,7 +75,7 @@ type HopServer struct {
 
 func NewServer(cfg HopServerConfig) error {
 	var err error
-	logger.Debug("%v", cfg)
+	logger.Debug(cfg)
 
 	cipher, err = newHopCipher([]byte(cfg.Key))
 	if err != nil {
@@ -188,12 +188,14 @@ func (srv *HopServer) listenAndServe(addr string, port string, idx int) {
 	port = addr + ":" + port
 	udpAddr, err := net.ResolveUDPAddr("udp", port)
 	if err != nil {
-		logger.Error("Invalid port: %s", port)
+		logger.Error("Invalid port:", port)
 		return
 	}
 	udpConn, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
-		logger.Error("Failed to listen udp port %s: %s", port, err.Error())
+		logger.Error(
+			fmt.Sprintf("Failed to listen udp port %s: %s", port, err.Error()),
+		)
 		return
 	}
 
@@ -261,7 +263,9 @@ func (srv *HopServer) forwardFrames() {
 			if hpeer, found := srv.peers[mkey]; found {
 				srv.bufferToClient(hpeer, pack)
 			} else {
-				logger.Warning("client peer with key %d not found", mkey)
+				logger.Warning(
+					fmt.Sprintf("client peer with key %d not found", mkey),
+				)
 			}
 
 		case packet := <-srv.fromNet:
@@ -274,17 +278,23 @@ func (srv *HopServer) forwardFrames() {
 func (srv *HopServer) handlePacket(packet *udpPacket) {
 	defer func() {
 		if err := recover(); err != nil {
-			logger.Error("handleFunction failed: %v, packet addr:%v", err, packet.addr)
+			logger.Error(
+				fmt.Sprintf("handleFunction failed: %v, packet addr:%v", err, packet.addr),
+			)
 		}
 	}()
 
 	hPack, err := unpackHopPacket(packet.data)
 	if err == nil {
-		logger.Debug("New UDP Packet [%v] from : %v", hPack.Flag, packet.addr)
+		logger.Debug(
+			fmt.Sprintf("New UDP Packet [%v] from : %v", hPack.Flag, packet.addr),
+		)
 		if handle_func, ok := srv.pktHandle[hPack.Flag]; ok {
 			handle_func(packet, hPack)
 		} else {
-			logger.Error("Unkown flag: %x", hPack.Flag)
+			logger.Error(
+				fmt.Sprintf("Unkown flag: %x", hPack.Flag),
+			)
 		}
 	} else {
 		logger.Error(err.Error())
@@ -298,7 +308,7 @@ func (srv *HopServer) toClient(peer *HopPeer, flag byte, payload []byte, noise b
 	hp.payload = payload
 
 	if addr, idx, ok := peer.addr(); ok {
-		logger.Debug("peer: %v", addr)
+		logger.Debug("peer:", addr)
 		upacket := &udpPacket{addr, hp.Pack(), idx}
 		srv.toNet[idx] <- upacket
 	} else {
@@ -337,7 +347,9 @@ func (srv *HopServer) bufferToClient(peer *HopPeer, buf []byte) {
 
 func (srv *HopServer) handleKnock(u *udpPacket, hp *HopPacket) {
 	sid := uint64(binary.BigEndian.Uint32(hp.payload[:4]))
-	logger.Debug("port knock from client %v, sid: %d", u.addr, sid)
+	logger.Debug(
+		fmt.Sprintf("port knock from client %v, sid: %d", u.addr, sid),
+	)
 	sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
 
 	hpeer, ok := srv.peers[sid]
@@ -369,7 +381,9 @@ func (srv *HopServer) handleHeartbeatAck(u *udpPacket, hp *HopPacket) {
 func (srv *HopServer) handleHandshake(u *udpPacket, hp *HopPacket) {
 	sid := uint64(binary.BigEndian.Uint32(hp.payload[:4]))
 	sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
-	logger.Debug("handshake from client %v, sid: %d", u.addr, sid)
+	logger.Debug(
+		fmt.Sprintf("handshake from client %v, sid: %d", u.addr, sid),
+	)
 
 	hpeer, ok := srv.peers[sid]
 	if !ok {
@@ -393,7 +407,9 @@ func (srv *HopServer) handleHandshake(u *udpPacket, hp *HopPacket) {
 		buf.WriteByte(byte(mask))
 		key := ip4_uint64(hpeer.ip)
 
-		logger.Debug("assign address %s, route key %d", cltIP, key)
+		logger.Debug(
+			fmt.Sprintf("assign address %s, route key %d", cltIP, key),
+		)
 		srv.peers[key] = hpeer
 		atomic.StoreInt32(&hpeer.state, HOP_STAT_HANDSHAKE)
 		srv.toClient(hpeer, HOP_FLG_HSH|HOP_FLG_ACK, buf.Bytes(), true)
@@ -431,11 +447,13 @@ func (srv *HopServer) handleHandshakeAck(u *udpPacket, hp *HopPacket) {
 		return
 	}
 	logger.Debug("Client Handshake Done")
-	logger.Info("Client %d Connected", sid)
+	logger.Info(
+		fmt.Sprintf("Client %d Connected", sid),
+	)
 	if ok = atomic.CompareAndSwapInt32(&hpeer.state, HOP_STAT_HANDSHAKE, HOP_STAT_WORKING); ok {
 		hpeer.hsDone <- struct{}{}
 	} else {
-		logger.Warning("Invalid peer state: %v", hpeer.ip)
+		logger.Warning("Invalid peer state:", hpeer.ip)
 		srv.kickOutPeer(sid)
 	}
 }
@@ -455,7 +473,9 @@ func (srv *HopServer) handleDataPacket(u *udpPacket, hp *HopPacket) {
 func (srv *HopServer) handleFinish(u *udpPacket, hp *HopPacket) {
 	sid := uint64(binary.BigEndian.Uint32(hp.payload[:4]))
 	sid = (sid << 32) & uint64(0xFFFFFFFF00000000)
-	logger.Info("releasing client %v, sid: %d", u.addr, sid)
+	logger.Info(
+		fmt.Sprintf("releasing client %v, sid: %d", u.addr, sid),
+	)
 
 	srv.deletePeer(sid)
 }
@@ -528,7 +548,9 @@ func (srv *HopServer) peerTimeoutWatcher() {
 			if sid < 0x01<<32 {
 				continue
 			}
-			logger.Debug("IP: %v, sid: %v", hpeer.ip, sid)
+			logger.Debug(
+				fmt.Sprintf("IP: %v, sid: %v", hpeer.ip, sid),
+			)
 			srv.toClient(hpeer, HOP_FLG_PSH, []byte{}, false)
 		}
 		// count := 0
@@ -537,14 +559,18 @@ func (srv *HopServer) peerTimeoutWatcher() {
 			if sid < 0x01<<32 {
 				continue
 			}
-			logger.Debug("watch: %v", hpeer.lastSeenTime)
+			logger.Debug(
+				fmt.Sprintf("watch: %v", hpeer.lastSeenTime),
+			)
 			// if sid>>32 > 0 {
 			// 	count++
 			// }
 			conntime := time.Since(hpeer.lastSeenTime)
 			// logger.Debug("watch:%v %v", conntime.Seconds(), timeout.Seconds())
 			if conntime > timeout {
-				logger.Info("peer %v timeout", hpeer.ip)
+				logger.Info(
+					fmt.Sprintf("peer %v timeout", hpeer.ip),
+				)
 				go srv.kickOutPeer(sid)
 			}
 		}

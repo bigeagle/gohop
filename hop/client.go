@@ -117,7 +117,9 @@ func NewClient(cfg HopClientConfig) error {
 	hopClient.iface = iface
 
 	net_gateway, net_nic, err = getNetGateway()
-	logger.Debug("Net Gateway: %s %s", net_gateway, net_nic)
+	logger.Debug(
+		fmt.Sprintf("Net Gateway: %s %s", net_gateway, net_nic),
+	)
 	if err != nil {
 		return err
 	}
@@ -322,7 +324,9 @@ func (clt *HopClient) handleUDP(server string) {
 		if handle_func, ok := pktHandle[hp.Flag]; ok {
 			handle_func(udpConn, hp)
 		} else {
-			logger.Error("Unkown flag: %x", hp.Flag)
+			logger.Error(
+				fmt.Sprintf("Unkown flag: %x", hp.Flag),
+			)
 		}
 	}
 }
