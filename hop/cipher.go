@@ -32,11 +32,11 @@ type hopCipher struct {
 }
 
 // We are going to use AES256-CBC
-// the block size must be 32
 const cipherBlockSize = 16
 
 func newHopCipher(key []byte) (*hopCipher, error) {
-	key = PKCS5Padding(key, cipherBlockSize)
+	// 32 bytes for AES256 encryption
+	key = PKCS5Padding(key, 32)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
