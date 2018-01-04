@@ -31,55 +31,74 @@ type hopCipher struct {
 	block _cipher.Block
 }
 
+// We are going to use AES256-CBC
 const cipherBlockSize = 16
 
 func newHopCipher(key []byte) (*hopCipher, error) {
-	s := new(hopCipher)
-	key = PKCS5Padding(key, cipherBlockSize)
+	// 32 bytes for AES256 encryption
+	key = PKCS5Padding(key, 32)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
-	s.block = block
-	return s, nil
+	return &hopCipher{block}, nil
 }
 
 func (s *hopCipher) encrypt(msg []byte) []byte {
-	cmsg := make([]byte, snappy.MaxEncodedLen(len(msg)))
-	cmsg = snappy.Encode(cmsg, msg)
+	defer func() {
+		if err := recover(); err != nil {
+			logger.Error("error encrypting:", err)
+		}
+	}()
+	// compressing using snappy and encrypting data
+	msg = append(
+		msg[:cipherBlockSize],
+		PKCS5Padding(
+			snappy.Encode(nil, msg), cipherBlockSize,
+		)...,
+	)
 
-	pmsg := PKCS5Padding(cmsg, cipherBlockSize)
-	buf := make([]byte, len(pmsg)+cipherBlockSize)
+	// generating random bytes for IV
+	rand.Read(msg[:cipherBlockSize])
+	// creates encrypter using block and IV
+	encrypter := _cipher.NewCBCEncrypter(
+		s.block, msg[:cipherBlockSize],
+	)
+	encrypter.CryptBlocks(
+		msg[cipherBlockSize:], msg[cipherBlockSize:],
+	)
 
-	iv := buf[:cipherBlockSize]
-	rand.Read(iv)
-	encrypter := _cipher.NewCBCEncrypter(s.block, iv)
-	encrypter.CryptBlocks(buf[cipherBlockSize:], pmsg)
-
-	return buf
+	return msg
 }
 
 func (s *hopCipher) decrypt(iv []byte, ctext []byte) []byte {
 	defer func() {
 		if err := recover(); err != nil {
-			logger.Error("%v", err)
+			logger.Error("panic:", err)
 		}
 	}()
-	decrypter := _cipher.NewCBCDecrypter(s.block, iv)
-	buf := make([]byte, len(ctext))
-	decrypter.CryptBlocks(buf, ctext)
-	cmsg := PKCS5UnPadding(buf)
+	var err error
 
-	msg, _ := snappy.Decode(nil, cmsg)
-	return msg
+	decrypter := _cipher.NewCBCDecrypter(s.block, iv)
+	decrypter.CryptBlocks(ctext, ctext)
+	ctext = PKCS5UnPadding(ctext)
+
+	ctext, err = snappy.Decode(nil, ctext)
+	if err != nil {
+		logger.Error(err)
+	}
+	return ctext
 }
 
+// PKCS5Padding implements PKCS5 as RFC8018 describes
 func PKCS5Padding(ciphertext []byte, blockSize int) []byte {
 	padding := blockSize - len(ciphertext)%blockSize
-	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
-	return append(ciphertext, padtext...)
+	return append(ciphertext,
+		bytes.Repeat([]byte{byte(padding)}, padding)...,
+	)
 }
 
+// PKCS5UnPadding implements PKCS as RFC8018 describes.
 func PKCS5UnPadding(origData []byte) []byte {
 	length := len(origData)
 	unpadding := int(origData[length-1])
