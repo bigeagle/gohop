@@ -96,7 +96,7 @@ func NewServer(cfg HopServerConfig) error {
 	hopServer.toNet = make([]chan *udpPacket, (cfg.HopEnd - cfg.HopStart + 1))
 	hopServer.ippool = new(hopIPPool)
 
-	iface, err := newTun("")
+	iface, err := newTun()
 	if err != nil {
 		return err
 	}
