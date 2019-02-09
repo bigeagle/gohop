@@ -110,7 +110,7 @@ func NewClient(cfg HopClientConfig) error {
 
 	go hopClient.cleanUp()
 
-	iface, err := newTun("")
+	iface, err := newTun()
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,6 @@
 #!/bin/bash -
 
-OLDGW=$(ip route show 0/0 | head -n1 | grep 'via' | grep -Po '\d+\.\d+\.\d+\.\d+')
+OLDGW=$(ip route show 0/0 | awk '{print $3}')
 
 if [ $OLDGW == '' ]; then
     exit 0

@@ -38,9 +38,9 @@ var invalidAddr = errors.New("Invalid device ip address")
 
 var tun_peer net.IP
 
-func newTun(name string) (iface *water.Interface, err error) {
+func newTun() (iface *water.Interface, err error) {
 
-	iface, err = water.NewTUN(name)
+	iface, err = water.New(water.Config{})
 	if err != nil {
 		return nil, err
 	}
